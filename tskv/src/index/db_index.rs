@@ -96,12 +96,12 @@ impl DBIndex {
     pub fn get_from_cache(&self, info: &mut SeriesInfo) -> Option<u64> {
         let series_key = SeriesKey::from(info.borrow());
         let (hash_id, _) = utils::split_id(series_key.hash());
-        let stroage_key = format!("{}{}", SERIES_KEY_PREFIX, hash_id);
+        // let stroage_key = format!("{}{}", SERIES_KEY_PREFIX, hash_id);
 
         if let Some(keys) = self.series_cache.get(&hash_id) {
             if let Some(k) = keys.iter().find(|key| series_key.eq(key)) {
                 let id = k.id();
-                if let Ok(()) = self.chech_field_type_from_cache(id, info) {
+                if let Ok(()) = self.check_field_type_from_cache(id, info) {
                     return Some(id);
                 }
             }
@@ -110,7 +110,7 @@ impl DBIndex {
         None
     }
 
-    pub fn add_series_if_not_exists(&mut self, info: &mut SeriesInfo) -> errors::IndexResult<u64> {
+    pub fn add_series_if_not_exists(&mut self, info: &mut SeriesInfo) -> IndexResult<u64> {
         let mut series_key = SeriesKey::from(info.borrow());
         let (hash_id, _) = utils::split_id(series_key.hash());
         let stroage_key = format!("{}{}", SERIES_KEY_PREFIX, hash_id);
@@ -159,7 +159,7 @@ impl DBIndex {
         Ok(id)
     }
 
-    fn chech_field_type_from_cache(
+    fn check_field_type_from_cache(
         &self,
         series_id: u64,
         info: &mut SeriesInfo,

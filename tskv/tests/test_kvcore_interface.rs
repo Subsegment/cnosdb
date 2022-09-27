@@ -1,22 +1,19 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use async_channel as channel;
     use chrono::Local;
     use serial_test::serial;
     use snafu::ResultExt;
+    use std::sync::Arc;
+    use std::time::Duration;
     use tokio::runtime;
     use tokio::runtime::Runtime;
-    use tokio::sync::oneshot::channel;
 
     use config::get_config;
     use models::SeriesInfo;
     use protos::{kv_service, models as fb_models, models_helper};
     use trace::{debug, error, info, init_default_global_tracing, warn};
     use tskv::engine::Engine;
-    use tskv::{error, kv_option, Task, TimeRange, TsKv};
+    use tskv::{error, kv_option, TimeRange, TsKv};
 
     fn get_tskv() -> (Arc<Runtime>, TsKv) {
         let mut global_config = get_config("../config/config.toml");
@@ -212,34 +209,6 @@ mod tests {
                 tskv.write(request).await.unwrap();
             });
         }
-    }
-
-    #[test]
-    #[serial]
-    fn test_kvcore_start() {
-        init_default_global_tracing("tskv_log", "tskv.log", "debug");
-        let (rt, tskv) = get_tskv();
-
-        let (wal_sender, wal_receiver) = channel::unbounded();
-        let (tx, rx) = channel();
-
-        let mut fbb = flatbuffers::FlatBufferBuilder::new();
-        let points = models_helper::create_random_points_with_delta(&mut fbb, 1);
-        fbb.finish(points, None);
-        let points = fbb.finished_data().to_vec();
-        let req = kv_service::WritePointsRpcRequest { version: 1, points };
-
-        rt.block_on(async {
-            wal_sender
-                .send(Task::WritePoints { req, tx })
-                .await
-                .unwrap();
-            TsKv::start(Arc::new(tskv), wal_receiver);
-            match rx.await {
-                Ok(Ok(_)) => info!("successful"),
-                _ => panic!("wrong"),
-            };
-        });
     }
 
     #[test]
