@@ -356,10 +356,10 @@ impl DBIndex {
         let lock = self.series_cache.read();
         let res = lock
             .get(&hash_id)
-            .map(|keys| keys.iter().find(|k| k.id() == sid).map(|key| key.clone()));
+            .map(|keys| keys.iter().find(|k| k.id() == sid).cloned());
         drop(lock);
         if res.is_some() {
-            return Ok(res.unwrap());
+            Ok(res.unwrap())
         } else {
             if let Some(data) = self.storage.get(stroage_key.as_bytes())? {
                 if let Ok(v) = bincode::deserialize::<Vec<SeriesKey>>(&data) {
