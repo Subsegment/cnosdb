@@ -15,8 +15,7 @@ use tokio::{
 };
 
 use models::{
-    utils::unite_id, FieldId, FieldInfo, InMemPoint, SeriesId, SeriesInfo, SeriesKey, Tag,
-    Timestamp, ValueType,
+    utils::unite_id, FieldId, FieldInfo, InMemPoint, SeriesId, SeriesKey, Tag, Timestamp, ValueType,
 };
 use protos::{
     kv_service::{WritePointsRpcRequest, WritePointsRpcResponse, WriteRowsRpcRequest},
@@ -527,7 +526,7 @@ impl Engine for TsKv {
 
     fn get_series_id_list(&self, name: &str, tab: &str, tags: &[Tag]) -> IndexResult<Vec<u64>> {
         if let Some(db) = self.version_set.read().get_db(name) {
-            return db.read().get_index().write().get_series_id_list(tab, tags);
+            return db.read().get_index().get_series_id_list(tab, tags);
         }
 
         Ok(vec![])
