@@ -556,7 +556,7 @@ mod test {
     use config::get_config;
     use flatbuffers::{FlatBufferBuilder, WIPOffset};
     use models::utils::now_timestamp;
-    use models::{InMemPoint, SeriesId, SeriesInfo, SeriesKey, Timestamp};
+    use models::{InMemPoint, SeriesId, SeriesKey, Timestamp};
     use protos::{models::Points, models_helper};
     use std::collections::HashMap;
     use std::sync::{atomic, Arc};
