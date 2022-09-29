@@ -1,19 +1,16 @@
 #[cfg(test)]
 mod tests {
-    use chrono::Local;
     use serial_test::serial;
-    use snafu::ResultExt;
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::runtime;
     use tokio::runtime::Runtime;
 
     use config::get_config;
-    use models::SeriesInfo;
-    use protos::{kv_service, models as fb_models, models_helper};
+    use protos::{kv_service,models_helper};
     use trace::{debug, error, info, init_default_global_tracing, warn};
     use tskv::engine::Engine;
-    use tskv::{error, kv_option, TimeRange, TsKv};
+    use tskv::{kv_option, TsKv};
 
     fn get_tskv() -> (Arc<Runtime>, TsKv) {
         let mut global_config = get_config("../config/config.toml");
@@ -50,146 +47,146 @@ mod tests {
         });
     }
 
-    // remove repeat sid and fields_id
-    pub fn remove_duplicates(nums: &mut [u64]) -> usize {
-        init_default_global_tracing("tskv_log", "tskv.log", "debug");
-        if nums.len() <= 1 {
-            return nums.len() as usize;
-        }
-        let mut l = 1;
-        for r in 1..nums.len() {
-            if nums[r] != nums[l - 1] {
-                nums[l] = nums[r];
-                l += 1;
-            }
-        }
-        l as usize
-    }
+    // // remove repeat sid and fields_id
+    // pub fn remove_duplicates(nums: &mut [u64]) -> usize {
+    //     init_default_global_tracing("tskv_log", "tskv.log", "debug");
+    //     if nums.len() <= 1 {
+    //         return nums.len() as usize;
+    //     }
+    //     let mut l = 1;
+    //     for r in 1..nums.len() {
+    //         if nums[r] != nums[l - 1] {
+    //             nums[l] = nums[r];
+    //             l += 1;
+    //         }
+    //     }
+    //     l as usize
+    // }
 
     // tips : to test all read method, we can use a small MAX_MEMCACHE_SIZE
-    #[test]
-    #[serial]
-    fn test_kvcore_read() {
-        init_default_global_tracing("tskv_log", "tskv.log", "debug");
-        let (rt, tskv) = get_tskv();
+    // #[test]
+    // #[serial]
+    // fn test_kvcore_read() {
+    //     init_default_global_tracing("tskv_log", "tskv.log", "debug");
+    //     let (rt, tskv) = get_tskv();
+    //
+    //     let database = "db".to_string();
+    //     let mut fbb = flatbuffers::FlatBufferBuilder::new();
+    //     let points = models_helper::create_random_points_with_delta(&mut fbb, 2000);
+    //     fbb.finish(points, None);
+    //     let points = fbb.finished_data().to_vec();
+    //     let request = kv_service::WritePointsRpcRequest { version: 1, points };
+    //     rt.block_on(async {
+    //         tskv.write(request.clone()).await.unwrap();
+    //         tokio::time::sleep(Duration::from_secs(1)).await;
+    //     });
+    //     rt.block_on(async {
+    //         tskv.write(request.clone()).await.unwrap();
+    //         tokio::time::sleep(Duration::from_secs(1)).await;
+    //     });
+    //     rt.block_on(async {
+    //         tskv.write(request.clone()).await.unwrap();
+    //         tokio::time::sleep(Duration::from_secs(1)).await;
+    //     });
+    //     rt.block_on(async {
+    //         tskv.write(request.clone()).await.unwrap();
+    //         tokio::time::sleep(Duration::from_secs(1)).await;
+    //     });
+    //
+    //     let shared_write_batch = Arc::new(request.points);
+    //     let fb_points = flatbuffers::root::<fb_models::Points>(&shared_write_batch)
+    //         .context(error::InvalidFlatbufferSnafu)
+    //         .unwrap();
+    //     let mut sids = vec![];
+    //     let mut fields_id = vec![];
+    //     for point in fb_points.points().unwrap() {
+    //         let mut info = SeriesInfo::from_flatbuffers(&point)
+    //             .context(error::InvalidModelSnafu)
+    //             .unwrap();
+    //         sids.push(info.series_id());
+    //         for field in info.field_infos().iter() {
+    //             fields_id.push(field.field_id());
+    //         }
+    //     }
+    //
+    //     sids.sort_unstable();
+    //     fields_id.sort_unstable();
+    //     let l = remove_duplicates(&mut sids);
+    //     sids = sids[0..l].to_owned();
+    //     let l = remove_duplicates(&mut fields_id);
+    //     fields_id = fields_id[0..l].to_owned();
+    //
+    //     let fields_id = fields_id.iter().map(|id| *id as u32).collect();
+    //
+    //     let output = tskv.read(
+    //         &database,
+    //         sids,
+    //         &TimeRange::new(0, Local::now().timestamp_millis() + 100),
+    //         fields_id,
+    //     );
+    //
+    //     info!("{:#?}", output);
+    // }
 
-        let database = "db".to_string();
-        let mut fbb = flatbuffers::FlatBufferBuilder::new();
-        let points = models_helper::create_random_points_with_delta(&mut fbb, 2000);
-        fbb.finish(points, None);
-        let points = fbb.finished_data().to_vec();
-        let request = kv_service::WritePointsRpcRequest { version: 1, points };
-        rt.block_on(async {
-            tskv.write(request.clone()).await.unwrap();
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        });
-        rt.block_on(async {
-            tskv.write(request.clone()).await.unwrap();
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        });
-        rt.block_on(async {
-            tskv.write(request.clone()).await.unwrap();
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        });
-        rt.block_on(async {
-            tskv.write(request.clone()).await.unwrap();
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        });
-
-        let shared_write_batch = Arc::new(request.points);
-        let fb_points = flatbuffers::root::<fb_models::Points>(&shared_write_batch)
-            .context(error::InvalidFlatbufferSnafu)
-            .unwrap();
-        let mut sids = vec![];
-        let mut fields_id = vec![];
-        for point in fb_points.points().unwrap() {
-            let mut info = SeriesInfo::from_flatbuffers(&point)
-                .context(error::InvalidModelSnafu)
-                .unwrap();
-            sids.push(info.series_id());
-            for field in info.field_infos().iter() {
-                fields_id.push(field.field_id());
-            }
-        }
-
-        sids.sort_unstable();
-        fields_id.sort_unstable();
-        let l = remove_duplicates(&mut sids);
-        sids = sids[0..l].to_owned();
-        let l = remove_duplicates(&mut fields_id);
-        fields_id = fields_id[0..l].to_owned();
-
-        let fields_id = fields_id.iter().map(|id| *id as u32).collect();
-
-        let output = tskv.read(
-            &database,
-            sids,
-            &TimeRange::new(0, Local::now().timestamp_millis() + 100),
-            fields_id,
-        );
-
-        info!("{:#?}", output);
-    }
-
-    #[test]
-    #[serial]
-    fn test_kvcore_delete_cache() {
-        init_default_global_tracing("tskv_log", "tskv.log", "debug");
-        let (rt, tskv) = get_tskv();
-        let database = "db".to_string();
-        let mut fbb = flatbuffers::FlatBufferBuilder::new();
-        let points = models_helper::create_random_points_with_delta(&mut fbb, 5);
-        fbb.finish(points, None);
-        let points = fbb.finished_data().to_vec();
-        let request = kv_service::WritePointsRpcRequest { version: 1, points };
-
-        rt.block_on(async {
-            tskv.write(request.clone()).await.unwrap();
-            tokio::time::sleep(Duration::from_secs(3)).await;
-        });
-
-        let shared_write_batch = Arc::new(request.points);
-        let fb_points = flatbuffers::root::<fb_models::Points>(&shared_write_batch)
-            .context(error::InvalidFlatbufferSnafu)
-            .unwrap();
-        let mut sids = vec![];
-        let mut fields_id = vec![];
-        for point in fb_points.points().unwrap() {
-            let mut info = SeriesInfo::from_flatbuffers(&point)
-                .context(error::InvalidModelSnafu)
-                .unwrap();
-            sids.push(info.series_id());
-            for field in info.field_infos().iter() {
-                fields_id.push(field.field_id());
-            }
-        }
-
-        sids.sort_unstable();
-        fields_id.sort_unstable();
-        let l = remove_duplicates(&mut sids);
-        sids = sids[0..l].to_owned();
-        let l = remove_duplicates(&mut fields_id);
-        fields_id = fields_id[0..l].to_owned();
-
-        let fields_id: Vec<u32> = fields_id.iter().map(|id| *id as u32).collect();
-
-        tskv.read(
-            &database,
-            sids.clone(),
-            &TimeRange::new(0, Local::now().timestamp_millis() + 100),
-            fields_id.clone(),
-        );
-
-        info!("delete delta data");
-        tskv.delete_series(&database, &sids, &[1], &TimeRange::new(1, 1))
-            .unwrap();
-        tskv.read(
-            &database,
-            sids.clone(),
-            &TimeRange::new(0, Local::now().timestamp_millis() + 100),
-            fields_id,
-        );
-    }
+    // #[test]
+    // #[serial]
+    // fn test_kvcore_delete_cache() {
+    //     init_default_global_tracing("tskv_log", "tskv.log", "debug");
+    //     let (rt, tskv) = get_tskv();
+    //     let database = "db".to_string();
+    //     let mut fbb = flatbuffers::FlatBufferBuilder::new();
+    //     let points = models_helper::create_random_points_with_delta(&mut fbb, 5);
+    //     fbb.finish(points, None);
+    //     let points = fbb.finished_data().to_vec();
+    //     let request = kv_service::WritePointsRpcRequest { version: 1, points };
+    //
+    //     rt.block_on(async {
+    //         tskv.write(request.clone()).await.unwrap();
+    //         tokio::time::sleep(Duration::from_secs(3)).await;
+    //     });
+    //
+    //     let shared_write_batch = Arc::new(request.points);
+    //     let fb_points = flatbuffers::root::<fb_models::Points>(&shared_write_batch)
+    //         .context(error::InvalidFlatbufferSnafu)
+    //         .unwrap();
+    //     let mut sids = vec![];
+    //     let mut fields_id = vec![];
+    //     for point in fb_points.points().unwrap() {
+    //         let mut info = SeriesInfo::from_flatbuffers(&point)
+    //             .context(error::InvalidModelSnafu)
+    //             .unwrap();
+    //         sids.push(info.series_id());
+    //         for field in info.field_infos().iter() {
+    //             fields_id.push(field.field_id());
+    //         }
+    //     }
+    //
+    //     sids.sort_unstable();
+    //     fields_id.sort_unstable();
+    //     let l = remove_duplicates(&mut sids);
+    //     sids = sids[0..l].to_owned();
+    //     let l = remove_duplicates(&mut fields_id);
+    //     fields_id = fields_id[0..l].to_owned();
+    //
+    //     let fields_id: Vec<u32> = fields_id.iter().map(|id| *id as u32).collect();
+    //
+    //     tskv.read(
+    //         &database,
+    //         sids.clone(),
+    //         &TimeRange::new(0, Local::now().timestamp_millis() + 100),
+    //         fields_id.clone(),
+    //     );
+    //
+    //     info!("delete delta data");
+    //     tskv.delete_series(&database, &sids, &[1], &TimeRange::new(1, 1))
+    //         .unwrap();
+    //     tskv.read(
+    //         &database,
+    //         sids.clone(),
+    //         &TimeRange::new(0, Local::now().timestamp_millis() + 100),
+    //         fields_id,
+    //     );
+    // }
 
     #[test]
     #[ignore]

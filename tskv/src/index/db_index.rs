@@ -358,23 +358,24 @@ impl DBIndex {
             .get(&hash_id)
             .map(|keys| keys.iter().find(|k| k.id() == sid).cloned());
         drop(lock);
-        if res.is_some() {
-            Ok(res.unwrap())
-        } else {
-            if let Some(data) = self.storage.get(stroage_key.as_bytes())? {
-                if let Ok(v) = bincode::deserialize::<Vec<SeriesKey>>(&data) {
-                    let res = v.clone();
-                    self.series_cache.write().entry(hash_id).or_insert(v);
-                    let res = res.iter().find(|k| k.id() == sid);
-                    if let Some(k) = res {
-                        return Ok(Some(k.clone()));
+        match res {
+            Some(res)=> Ok(res),
+            None => {
+                if let Some(data) = self.storage.get(stroage_key.as_bytes())? {
+                    if let Ok(v) = bincode::deserialize::<Vec<SeriesKey>>(&data) {
+                        let res = v.clone();
+                        self.series_cache.write().entry(hash_id).or_insert(v);
+                        let res = res.iter().find(|k| k.id() == sid);
+                        if let Some(k) = res {
+                            return Ok(Some(k.clone()));
+                        }
                     }
+                    return Err(IndexError::IndexStroage {
+                        msg: "deserialize failed".to_string(),
+                    });
                 }
-                return Err(IndexError::IndexStroage {
-                    msg: "deserialize failed".to_string(),
-                });
-            }
-            Ok(None)
+                Ok(None)
+            },
         }
     }
 
