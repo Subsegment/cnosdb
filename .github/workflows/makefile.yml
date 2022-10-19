@@ -64,8 +64,6 @@ jobs:
           submodules: true
       - name: Setup timezone
         uses: zcong1993/setup-timezone@master
-        with:
-          timezone: Asia/Shanghai
       - name: Prepare Rust Builder
         uses: ./.github/actions/setup-builder
         with:
