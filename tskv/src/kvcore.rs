@@ -476,7 +476,18 @@ impl Engine for TsKv {
                 database: schema.name.clone(),
             });
         }
-        self.version_set.write().create_db(schema.clone());
+        let db = self.version_set.write().create_db(schema.clone());
+        let opt_tsf = db.read().get_tsfamily_random();
+        let tsf = match opt_tsf {
+            Some(v) => v,
+            None => db.write().add_tsfamily(
+                0,
+                0,
+                self.global_ctx.file_id_next(),
+                self.summary_task_sender.clone(),
+                self.flush_task_sender.clone(),
+            ),
+        };
         Ok(())
     }
 

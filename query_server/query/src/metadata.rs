@@ -49,7 +49,7 @@ impl LocalCatalogMeta {
                 MetadataError::External { ref source } => {
                     if !source
                         .to_string()
-                        .eq(&format!("database '{}' already exists", DEFAULT_SCHEMA))
+                        .eq(&format!("Execution error: database '{}' already exists", DEFAULT_SCHEMA))
                     {
                         return Err(e);
                     }
