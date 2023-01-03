@@ -65,10 +65,6 @@ impl Database {
         Ok(db)
     }
 
-    pub fn alter_db_schema(&self, schema: DatabaseSchema) -> Result<()> {
-        self.schemas.alter_db_schema(schema).context(SchemaSnafu)
-    }
-
     pub fn open_tsfamily(
         &mut self,
         ver: Arc<Version>,
@@ -297,32 +293,6 @@ impl Database {
         }
 
         (edits, files)
-    }
-
-    pub fn add_table_column(&self, table: &str, column: TableColumn) -> Result<()> {
-        self.schemas
-            .add_table_column(table, column)
-            .context(SchemaSnafu)?;
-        Ok(())
-    }
-
-    pub fn drop_table_column(&self, table: &str, column_name: &str) -> Result<()> {
-        self.schemas
-            .drop_table_column(table, column_name)
-            .context(SchemaSnafu)?;
-        Ok(())
-    }
-
-    pub fn change_table_column(
-        &self,
-        table: &str,
-        column_name: &str,
-        new_column: TableColumn,
-    ) -> Result<()> {
-        self.schemas
-            .change_table_column(table, column_name, new_column)
-            .context(SchemaSnafu)?;
-        Ok(())
     }
 
     pub fn get_series_key(&self, sid: u64) -> IndexResult<Option<SeriesKey>> {

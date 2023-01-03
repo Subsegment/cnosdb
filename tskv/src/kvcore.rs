@@ -387,6 +387,79 @@ impl TsKv {
             .create_db(schema.clone(), self.meta_manager.clone())?;
         Ok(db)
     }
+
+    fn change_series_schema_column(
+        &self,
+        tenant: &str,
+        database: &str,
+        series_ids: &[SeriesId],
+        column_name: &str,
+        new_column: TableColumn,
+    ) -> Result<()> {
+        if let Some(db) = self.version_set.read().get_db(tenant, database) {
+            for (ts_family_id, ts_family) in db.read().ts_families().iter() {
+                ts_family
+                    .read()
+                    .change_column(series_ids, column_name, &new_column);
+            }
+        }
+        Ok(())
+    }
+
+    fn add_series_schema_column(
+        &self,
+        tenant: &str,
+        database: &str,
+        series_ids: &[SeriesId],
+        new_column: TableColumn,
+    ) -> Result<()> {
+        if let Some(db) = self.version_set.read().get_db(tenant, database) {
+            for (ts_family_id, ts_family) in db.read().ts_families().iter() {
+                ts_family.read().add_column(series_ids, &new_column);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn delete_columns(
+        &self,
+        tenant: &str,
+        database: &str,
+        table: &str,
+        column_ids: &[ColumnId],
+    ) -> Result<()> {
+        let db = self.get_db(tenant, database)?;
+
+        let series_ids = db
+            .read()
+            .get_index()
+            .get_series_id_list(table, &[])
+            .context(IndexErrSnafu)?;
+
+        let storage_field_ids: Vec<u64> = series_ids
+            .iter()
+            .flat_map(|sid| column_ids.iter().map(|fid| unite_id(*fid as u64, *sid)))
+            .collect();
+
+        if let Some(db) = self.version_set.read().get_db(tenant, database) {
+            for (ts_family_id, ts_family) in db.read().ts_families().iter() {
+                ts_family.read().delete_columns(&storage_field_ids);
+
+                let version = ts_family.read().super_version();
+                for column_file in version
+                    .version
+                    .column_files(&storage_field_ids, &TimeRange::all())
+                {
+                    self.runtime.block_on(
+                        column_file.add_tombstone(&storage_field_ids, &TimeRange::all()),
+                    )?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -547,37 +620,6 @@ impl Engine for TsKv {
         ))
     }
 
-    fn delete_columns(
-        &self,
-        tenant: &str,
-        database: &str,
-        series_ids: &[SeriesId],
-        field_ids: &[ColumnId],
-    ) -> Result<()> {
-        let storage_field_ids: Vec<u64> = series_ids
-            .iter()
-            .flat_map(|sid| field_ids.iter().map(|fid| unite_id(*fid as u64, *sid)))
-            .collect();
-
-        if let Some(db) = self.version_set.read().get_db(tenant, database) {
-            for (ts_family_id, ts_family) in db.read().ts_families().iter() {
-                ts_family.write().delete_columns(&storage_field_ids);
-
-                let version = ts_family.read().super_version();
-                for column_file in version
-                    .version
-                    .column_files(&storage_field_ids, &TimeRange::all())
-                {
-                    self.runtime.block_on(
-                        column_file.add_tombstone(&storage_field_ids, &TimeRange::all()),
-                    )?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     fn delete_series(
         &self,
         tenant: &str,
@@ -709,7 +751,12 @@ impl Engine for TsKv {
         column: TableColumn,
     ) -> Result<()> {
         let db = self.get_db(tenant, database)?;
-        db.read().add_table_column(table, column)?;
+        let sid = db
+            .read()
+            .get_index()
+            .get_series_id_list(table, &[])
+            .context(IndexErrSnafu)?;
+        self.add_series_schema_column(tenant, database, &sid, column)?;
         Ok(())
     }
 
@@ -733,13 +780,7 @@ impl Engine for TsKv {
                 reason: column_name.to_string(),
             })?
             .id;
-        db.read().drop_table_column(table, column_name)?;
-        let sid = db
-            .read()
-            .get_index()
-            .get_series_id_list(table, &[])
-            .context(IndexErrSnafu)?;
-        self.delete_columns(tenant, database, &sid, &[column_id])?;
+        self.delete_columns(tenant, database, table, &[column_id])?;
         Ok(())
     }
 
@@ -752,8 +793,12 @@ impl Engine for TsKv {
         new_column: TableColumn,
     ) -> Result<()> {
         let db = self.get_db(tenant, database)?;
-        db.read()
-            .change_table_column(table, column_name, new_column)?;
+        let sid = db
+            .read()
+            .get_index()
+            .get_series_id_list(table, &[])
+            .context(IndexErrSnafu)?;
+        self.change_series_schema_column(tenant, database, &sid, column_name, new_column)?;
         Ok(())
     }
 }

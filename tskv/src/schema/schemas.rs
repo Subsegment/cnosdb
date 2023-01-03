@@ -44,11 +44,6 @@ impl DBschemas {
         })
     }
 
-    pub fn alter_db_schema(&self, db_schema: DatabaseSchema) -> Result<()> {
-        // todo: client need alter db action
-        Ok(())
-    }
-
     pub fn check_field_type_from_cache(&self, series_id: u64, info: &Point) -> Result<()> {
         let table_name =
             unsafe { String::from_utf8_unchecked(info.tab().unwrap().bytes().to_vec()) };
@@ -182,17 +177,8 @@ impl DBschemas {
             .get_tskv_table_schema(&self.database_name, tab)
             .context(MetaSnafu)?;
 
-        //todo get schema from meta
         Ok(schema)
     }
-
-    // pub fn list_tables(&self) -> Result<Vec<String>> {
-    //     let tables = self
-    //         .client
-    //         .list_tables(&self.database_name)
-    //         .context(MetaSnafu)?;
-    //     Ok(tables)
-    // }
 
     pub fn del_table_schema(&self, tab: &str) -> Result<()> {
         self.client
@@ -200,14 +186,6 @@ impl DBschemas {
             .context(MetaSnafu)?;
         Ok(())
     }
-
-    // pub fn create_table(&self, schema: &TskvTableSchema) -> Result<()> {
-    //     self.client
-    //         .create_table(&TableSchema::TsKvTableSchema(schema.clone()))
-    //         .context(MetaSnafu)?;
-
-    //     Ok(())
-    // }
 
     pub fn db_schema(&self) -> Result<DatabaseSchema> {
         let db_schema = self
@@ -218,68 +196,5 @@ impl DBschemas {
                 database: self.database_name.clone(),
             })?;
         Ok(db_schema)
-    }
-
-    pub fn add_table_column(&self, tab: &str, mut column: TableColumn) -> Result<()> {
-        let mut schema = self
-            .client
-            .get_tskv_table_schema(&self.database_name, tab)
-            .context(MetaSnafu)?
-            .ok_or(SchemaError::TableNotFound {
-                table: tab.to_string(),
-            })?;
-        if schema.column(&column.name).is_some() {
-            return Err(SchemaError::ColumnAlreadyExists { name: column.name });
-        }
-        column.id = schema.next_column_id();
-        schema.add_column(column);
-        schema.schema_id += 1;
-        self.client
-            .update_table(&TableSchema::TsKvTableSchema(schema))
-            .context(MetaSnafu)?;
-        Ok(())
-    }
-
-    pub fn drop_table_column(&self, tab: &str, name: &str) -> Result<()> {
-        let mut schema = self
-            .client
-            .get_tskv_table_schema(&self.database_name, tab)
-            .context(MetaSnafu)?
-            .ok_or(SchemaError::TableNotFound {
-                table: tab.to_string(),
-            })?;
-        if schema.column(name).is_none() {
-            return Err(SchemaError::NotFoundField);
-        }
-        schema.drop_column(name);
-        schema.schema_id += 1;
-        self.client
-            .update_table(&TableSchema::TsKvTableSchema(schema))
-            .context(MetaSnafu)?;
-        Ok(())
-    }
-
-    pub fn change_table_column(
-        &self,
-        tab: &str,
-        name: &str,
-        new_column: TableColumn,
-    ) -> Result<()> {
-        let mut schema = self
-            .client
-            .get_tskv_table_schema(&self.database_name, tab)
-            .context(MetaSnafu)?
-            .ok_or(SchemaError::TableNotFound {
-                table: tab.to_string(),
-            })?;
-        if schema.column(name).is_none() {
-            return Err(SchemaError::NotFoundField);
-        }
-        schema.change_column(name, new_column);
-        schema.schema_id += 1;
-        self.client
-            .update_table(&TableSchema::TsKvTableSchema(schema))
-            .context(MetaSnafu)?;
-        Ok(())
     }
 }
