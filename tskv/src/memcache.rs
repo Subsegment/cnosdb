@@ -248,7 +248,9 @@ impl SeriesData {
 
     pub fn add_column(&mut self, new_column: &TableColumn) {
         for item in self.groups.iter_mut() {
-            item.schema.add_column(new_column.clone());
+            let mut column = new_column.clone();
+            column.id = item.schema.next_column_id();
+            item.schema.add_column(column.clone());
             item.schema.schema_id += 1;
         }
     }
