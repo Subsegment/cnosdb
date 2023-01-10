@@ -2,14 +2,14 @@ FROM rust:1.64-slim-bullseye as builder
 
 RUN apt update && apt install -y pkg-config openssl libssl-dev curl g++ unzip
 
-RUN curl -o flatbuffers.zip -sL https://github.com/google/flatbuffers/releases/download/v22.9.29/Linux.flatc.binary.clang++-12.zip
-RUN unzip  flatbuffers.zip
-RUN mv flatc /usr/local/bin
+RUN curl -o flatbuffers.zip -sL https://github.com/google/flatbuffers/releases/download/v22.9.29/Linux.flatc.binary.clang++-12.zip \
+    unzip  flatbuffers.zip \
+    mv flatc /usr/local/bin
 
 COPY . /cnosdb
 WORKDIR /cnosdb
-RUN cargo build --release --bin main \
-    && cargo build --release --package client
+RUN cargo build --release --bin cnosdb \
+    && cargo build --release --package cnosdb-cli
 
 FROM ubuntu:focal
 
