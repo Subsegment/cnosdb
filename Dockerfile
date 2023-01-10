@@ -8,7 +8,6 @@ RUN curl -o flatbuffers.zip -sL https://github.com/google/flatbuffers/releases/d
 
 COPY . /cnosdb
 WORKDIR /cnosdb
-RUN export CARGO_REGISTRY_INDEX_SOURCES="https://mirrors.aliyun.com/crates.io-index"
 RUN cargo build --release --bin main \
     && cargo build --release --package client
 
