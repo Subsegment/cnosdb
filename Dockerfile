@@ -1,17 +1,24 @@
-FROM cnosdb/cnosdb-build as build
+FROM rust:1.64-slim-bullseye as builder
 
-# Build
+RUN apt update && apt install -y pkg-config openssl libssl-dev g++
+
+RUN curl -o flatbuffers.zip -sL https://github.com/google/flatbuffers/releases/download/v22.9.29/Linux.flatc.binary.clang++-12.zip \
+    unzip  flatbuffers.zip \
+    mv flatc /usr/local/bin
+
 COPY . /cnosdb
-RUN cd /cnosdb && cargo build --release --package main --bin cnosdb \
-    && cargo build --release --package client --bin cnosdb-cli
+WORKDIR /cnosdb
+RUN export CARGO_REGISTRY_INDEX_SOURCES="https://mirrors.aliyun.com/crates.io-index"
+RUN cargo build --release --bin main \
+    && cargo build --release --package client
 
-FROM cnosdb/alpine-glibc
+FROM ubuntu:focal
 
 ENV RUST_BACKTRACE 1
 
-COPY --from=build /cnosdb/target/release/cnosdb /usr/bin/cnosdb
-COPY --from=build /cnosdb/target/release/cnosdb-cli /usr/bin/cnosdb-cli
+COPY --from=builder /cnosdb/target/release/main /usr/bin/cnosdb
+COPY --from=builder /cnosdb/target/release/client /usr/bin/cnosdb-cli
 
 COPY ./config/config.toml /etc/cnosdb/cnosdb.conf
 
-ENTRYPOINT /usr/bin/cnosdb run --cpu ${cpu} --memory ${memory} --config /etc/cnosdb/cnosdb.conf
+ENTRYPOINT ["/bin/bash", "-c", "trap : TERM INT; (while true; do sleep 1000; done) & wait"]
