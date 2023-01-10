@@ -21,6 +21,11 @@ build:
 	cargo build --all-features --all-targets --package meta
 	cargo build --all-features --all-targets --package client
 
+build-release:
+	cargo build --all-features --all-targets --release --package main
+	cargo build --all-features --all-targets --release --package meta
+	cargo build --all-features --all-targets --release --package client
+
 test:
 	cargo test --workspace --exclude e2e_test
 
