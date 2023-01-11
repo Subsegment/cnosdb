@@ -1,9 +1,9 @@
 name: Build Docker Image(meta)
 
 on:
-  schedule:
-    - cron: '0 16 * * *'
-
+  push:
+    branches:
+      - main
 env:
   APP_NAME: cnosdb
   DOCKERHUB_REPO: ivankf/cnosdb
