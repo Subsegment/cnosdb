@@ -1,5 +1,5 @@
 env:
-  APP_NAME: cnosdb
+  APP_NAME: cnosdb-meta
   DOCKERHUB_REPO: ivankf/cnosdb-meta
 
 jobs:
