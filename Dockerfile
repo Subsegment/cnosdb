@@ -6,6 +6,8 @@ RUN curl -o flatbuffers.zip -sL https://github.com/google/flatbuffers/releases/d
 RUN unzip  flatbuffers.zip
 RUN mv flatc /usr/local/bin
 
+RUN curl -o protoc-21.12-linux-x86_64.zip -sL https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip && unzip protoc-21.12-linux-x86_64.zip && mv bin/protoc /usr/local/bin
+
 COPY . /cnosdb
 WORKDIR /cnosdb
 RUN make build
