@@ -1,6 +1,6 @@
 FROM rust:1.65-slim-bullseye as builder
 
-RUN apt update && apt install -y pkg-config openssl libssl-dev curl g++ unzip make
+RUN apt update && apt install -y pkg-config openssl libssl-dev curl g++ unzip make protobuf-compiler
 
 RUN curl -o flatbuffers.zip -sL https://github.com/google/flatbuffers/releases/download/v22.9.29/Linux.flatc.binary.clang++-12.zip
 RUN unzip  flatbuffers.zip
