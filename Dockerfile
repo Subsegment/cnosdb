@@ -1,4 +1,4 @@
-FROM rust:1.64-slim-bullseye as builder
+FROM rust:1.65-slim-bullseye as builder
 
 RUN apt update && apt install -y pkg-config openssl libssl-dev curl g++ unzip
 
