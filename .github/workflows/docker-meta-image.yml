@@ -1,3 +1,10 @@
+name: Build Docker Image(meta)
+
+on:
+  push:
+    branches:
+      - main
+
 env:
   APP_NAME: cnosdb-meta
   DOCKERHUB_REPO: ivankf/cnosdb-meta
