@@ -9,15 +9,14 @@ RUN protoc --version
 
 COPY . /cnosdb
 WORKDIR /cnosdb
-RUN cargo build --all-features --all-targets --release --package main && cargo build --all-features --all-targets --release --package client
+RUN cargo build --all-features --all-targets --release --package meta
 
 FROM ubuntu:focal
 
 ENV RUST_BACKTRACE 1
 
-COPY --from=builder /cnosdb/target/release/cnosdb /usr/bin/cnosdb
-COPY --from=builder /cnosdb/target/release/cnosdb-cli /usr/bin/cnosdb-cli
+COPY --from=builder /cnosdb/target/release/cnosdb-meta /usr/bin/cnosdb-meta
 
-COPY ./config/sample.toml /etc/cnosdb/cnosdb.conf
 
-ENTRYPOINT /usr/bin/cnosdb run --config /etc/cnosdb/cnosdb.conf
+
+ENTRYPOINT /usr/bin/cnosdb-meta
