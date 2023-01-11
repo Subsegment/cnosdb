@@ -11,7 +11,7 @@ RUN protoc --version
 
 COPY . /cnosdb
 WORKDIR /cnosdb
-RUN make build
+RUN make build-release
 
 FROM ubuntu:focal
 
