@@ -9,7 +9,8 @@ RUN protoc --version
 
 COPY . /cnosdb
 WORKDIR /cnosdb
-RUN cargo build --all-features --all-targets --release --package main && cargo build --all-features --all-targets --release --package client
+RUN cargo build --all-features --all-targets --release --package main
+RUN cargo build --all-features --all-targets --release --package client
 
 FROM ubuntu:focal
 
