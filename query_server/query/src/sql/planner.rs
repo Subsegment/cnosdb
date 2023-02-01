@@ -2153,7 +2153,9 @@ mod tests {
         );
         let user = User::new(user_desc, HashSet::default());
         let context = ContextBuilder::new(user).build();
-        IsiphoSessionCtxFactory::default().create_isipho_session_ctx(context, 0_u128)
+        IsiphoSessionCtxFactory::default()
+            .create_isipho_session_ctx(context, 0_u128)
+            .unwrap()
     }
 
     #[tokio::test]
