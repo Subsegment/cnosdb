@@ -254,17 +254,18 @@ impl TsKv {
         summary_task_sender: UnboundedSender<SummaryTask>,
         compact_task_sender: UnboundedSender<TseriesFamilyId>,
     ) {
+        let run_time = self.runtime.clone();
         let f = async move {
             while let Some(x) = receiver.recv().await {
-                run_flush_memtable_job(
-                    x,
-                    ctx.clone(),
-                    version_set.clone(),
-                    summary_task_sender.clone(),
-                    compact_task_sender.clone(),
-                )
-                .await
-                .unwrap()
+                run_time.spawn(
+                    run_flush_memtable_job(
+                        x,
+                        ctx.clone(),
+                        version_set.clone(),
+                        summary_task_sender.clone(),
+                        compact_task_sender.clone(),
+                    ),
+                );
             }
         };
         self.runtime.spawn(f);
