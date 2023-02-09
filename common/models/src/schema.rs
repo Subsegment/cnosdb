@@ -101,7 +101,7 @@ impl ExternalTableSchema {
             FileType::CSV => Arc::new(
                 CsvFormat::default()
                     .with_has_header(self.has_header)
-                    .with_delimiter(self.delimiter as u8)
+                    .with_delimiter(self.delimiter)
                     .with_file_compression_type(file_compression_type),
             ),
             FileType::PARQUET => Arc::new(ParquetFormat::default()),

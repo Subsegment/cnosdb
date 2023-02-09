@@ -421,6 +421,7 @@ mod test {
     use tokio::sync::mpsc;
 
     use crate::compaction::test::create_options;
+    use crate::kvcore::COMPACT_REQ_CHANNEL_CAP;
     use crate::{
         file_utils::make_tsm_file_name,
         kv_option::{Options, StorageOptions},
@@ -495,8 +496,8 @@ mod test {
             1000,
             Arc::new(ShardedCache::with_capacity(1)),
         ));
-        let (flush_task_sender, _) = mpsc::unbounded_channel();
-        let (compactt_task_sender, _) = mpsc::unbounded_channel();
+        let (flush_task_sender, _) = mpsc::channel(opt.storage.flush_req_channel_cap);
+        let (compactt_task_sender, _) = mpsc::channel(COMPACT_REQ_CHANNEL_CAP);
         TseriesFamily::new(
             1,
             Arc::new("ts_family_1".to_string()),
@@ -545,7 +546,11 @@ mod test {
         ];
 
         let tsf = create_tseries_family(Arc::new("dba".to_string()), opt, levels_sketch);
-        let compact_req = tsf.pick_compaction().unwrap();
+        let compact_req = {
+            let version = tsf.version();
+            let compact_picker = tsf.picker();
+            compact_picker.pick_compaction(version).unwrap()
+        };
         assert_eq!(compact_req.out_level, 2);
         assert_eq!(compact_req.files.len(), 2);
     }

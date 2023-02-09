@@ -5,7 +5,7 @@ use tokio::{
     runtime::Runtime,
     sync::{
         broadcast,
-        mpsc::{UnboundedReceiver, UnboundedSender},
+        mpsc::{Receiver, Sender},
         oneshot, RwLock, Semaphore,
     },
     task::JoinHandle,
@@ -21,10 +21,10 @@ use crate::{
 pub fn run(
     storage_opt: Arc<StorageOptions>,
     runtime: Arc<Runtime>,
-    mut receiver: UnboundedReceiver<TseriesFamilyId>,
+    mut receiver: Receiver<TseriesFamilyId>,
     ctx: Arc<GlobalContext>,
     version_set: Arc<RwLock<VersionSet>>,
-    summary_task_sender: UnboundedSender<SummaryTask>,
+    summary_task_sender: Sender<SummaryTask>,
 ) -> JoinHandle<()> {
     let runtime_inner = runtime.clone();
 
@@ -44,7 +44,11 @@ pub fn run(
                 info!("Starting compaction on ts_family {}", ts_family_id);
                 let start = Instant::now();
 
-                let compact_req = tsf.read().pick_compaction();
+                let compact_req = {
+                    let version = tsf.read().await.version();
+                    let compact_picker = tsf.read().await.picker();
+                    compact_picker.pick_compaction(version)
+                };
                 if let Some(req) = compact_req {
                     let database = req.database.clone();
                     let compact_ts_family = req.ts_family_id;
