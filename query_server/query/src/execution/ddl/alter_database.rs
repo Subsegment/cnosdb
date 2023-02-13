@@ -29,7 +29,7 @@ impl DDLDefinitionTask for AlterDatabaseTask {
                 tenant: tenant.to_string(),
             })?;
         // .context(MetaSnafu)?;
-        let mut schema = client
+        let mut schema = client.read().await
             .get_db_schema(&self.stmt.database_name)?
             // .context(spi::MetaSnafu)?
             .ok_or(MetaError::DatabaseNotFound {
@@ -41,7 +41,7 @@ impl DDLDefinitionTask for AlterDatabaseTask {
         //     .alter_database(schema)
         //     .context(spi::MetaSnafu)?;
 
-        client.alter_db_schema(&schema).await?;
+        client.read().await.alter_db_schema(&schema).await?;
         // .context(spi::MetaSnafu)?;
         return Ok(Output::Nil(()));
     }

@@ -42,11 +42,12 @@ async fn describe_table(
         .ok_or(MetaError::TenantNotFound {
             tenant: tenant.to_string(),
         })?;
-    let table_schema = client
+    let client_r = client.read().await;
+    let table_schema = client_r
         .get_table_schema(table_name.database(), table_name.table())?
         .ok_or(MetaError::TableNotFound {
             table: table_name.to_string(),
-        })?;
+        })?.as_ref().clone();
 
     match table_schema {
         TableSchema::TsKvTableSchema(tskv_schema) => {

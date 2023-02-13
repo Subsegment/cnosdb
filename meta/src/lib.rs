@@ -9,6 +9,7 @@ use openraft::Config;
 use openraft::Raft;
 use std::fmt::Display;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tenant_manager::TenantManager;
 use user_manager::UserManager;
 pub mod client;
@@ -25,7 +26,7 @@ pub mod user_manager;
 
 pub type UserManagerRef = Arc<dyn UserManager>;
 pub type TenantManagerRef = Arc<dyn TenantManager>;
-pub type MetaClientRef = Arc<dyn MetaClient>;
+pub type MetaClientRef = Arc<RwLock<dyn MetaClient>>;
 pub type AdminMetaRef = Arc<dyn AdminMeta>;
 pub type MetaRef = Arc<dyn MetaManager>;
 

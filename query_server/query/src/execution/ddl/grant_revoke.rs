@@ -55,7 +55,7 @@ impl DDLDefinitionTask for GrantRevokeTask {
                 role_name, tenant_name
             );
 
-            meta.grant_privilege_to_custom_role(database_privileges.clone(), role_name)
+            meta.read().await.grant_privilege_to_custom_role(database_privileges.clone(), role_name)
                 .await?;
         } else {
             // 给租户下的自定义角色撤销若干权限
@@ -71,7 +71,7 @@ impl DDLDefinitionTask for GrantRevokeTask {
                 role_name, tenant_name
             );
 
-            meta.revoke_privilege_from_custom_role(database_privileges.clone(), role_name)
+            meta.read().await.revoke_privilege_from_custom_role(database_privileges.clone(), role_name)
                 .await?;
         }
 

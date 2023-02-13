@@ -39,28 +39,30 @@ impl InformationSchemaTableFactory for DatabasePrivilegesFactory {
     ) -> std::result::Result<Arc<MemTable>, MetaError> {
         let mut builder = InformationSchemaDatabasePrivilegesBuilder::default();
 
+        let metadata_r = metadata.read().await;
+        let tenant = metadata_r.tenant();
+
         let user_id = user.desc().id();
         let user_name = user.desc().name();
-        let tenant = metadata.tenant();
         let tenant_id = tenant.id();
         let tenant_name = tenant.name();
 
         if user.can_access_role(*tenant_id) {
             // All records of this view are visible to the Owner of the current tenant.
-            for role in metadata.custom_roles().await? {
+            for role in metadata.read().await.custom_roles().await? {
                 for (database_name, privilege) in role.additiona_privileges() {
                     builder.append_row(tenant_name, database_name, privilege.as_str(), role.name())
                 }
             }
         } else {
             // For non-Owner members, only records corresponding to own role are accessed
-            if let Some(role) = metadata.member_role(user_id).await? {
+            if let Some(role) = metadata.read().await.member_role(user_id).await? {
                 match role {
                     TenantRoleIdentifier::System(_) => {
                         // not show system roles
                     }
                     TenantRoleIdentifier::Custom(ref role_name) => {
-                        if let Some(role) = metadata.custom_role(role_name).await? {
+                        if let Some(role) = metadata.read().await.custom_role(role_name).await? {
                             for (database_name, privilege) in role.additiona_privileges() {
                                 builder.append_row(
                                     tenant_name,

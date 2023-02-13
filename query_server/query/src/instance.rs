@@ -190,7 +190,7 @@ async fn init_metadata(coord: CoordinatorRef) -> Result<()> {
         if let Some(root) = user_manager.user(ROOT).await? {
             if let Some(client) = tenant_manager.tenant_meta(DEFAULT_CATALOG).await {
                 let role = TenantRoleIdentifier::System(SystemTenantRole::Owner);
-                if let Err(err) = client.add_member_with_role(*root.id(), role).await {
+                if let Err(err) = client.read().await.add_member_with_role(*root.id(), role).await {
                     match err {
                         MetaError::UserAlreadyExists { .. }
                         | MetaError::MemberAlreadyExists { .. } => {}
@@ -209,7 +209,7 @@ async fn init_metadata(coord: CoordinatorRef) -> Result<()> {
                 .ok_or(MetaError::TenantNotFound {
                     tenant: DEFAULT_CATALOG.to_string(),
                 })?;
-        let res = client
+        let res = client.write().await
             .create_db(DatabaseSchema::new(DEFAULT_CATALOG, DEFAULT_DATABASE))
             .await;
         if let Err(err) = res {

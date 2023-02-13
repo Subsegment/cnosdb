@@ -30,8 +30,9 @@ impl InformationSchemaTableFactory for TablesFactory {
     ) -> std::result::Result<Arc<MemTable>, MetaError> {
         let mut builder = InformationSchemaTablesBuilder::default();
 
-        let dbs = metadata.list_databases()?;
-        let tenant = metadata.tenant();
+        let metadata_r = metadata.read().await;
+        let dbs = metadata_r.list_databases()?;
+        let tenant = metadata_r.tenant();
         let tenant_id = tenant.id();
         let tenant_name = tenant.name();
 
@@ -41,9 +42,9 @@ impl InformationSchemaTableFactory for TablesFactory {
                 continue;
             }
 
-            let tables = metadata.list_tables(&db)?;
+            let tables = metadata.read().await.list_tables(&db)?;
             for table in tables {
-                if let Some(table) = metadata.get_table_schema(&db, &table)? {
+                if let Some(table) = metadata.read().await.get_table_schema(&db, &table)? {
                     builder.append_row(
                         tenant_name,
                         &db,

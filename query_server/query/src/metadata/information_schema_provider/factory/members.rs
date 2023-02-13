@@ -32,7 +32,7 @@ impl InformationSchemaTableFactory for MembersFactory {
     ) -> std::result::Result<Arc<MemTable>, MetaError> {
         let mut builder = InformationSchemaMembersBuilder::default();
 
-        for (user_name, role) in metadata.members().await? {
+        for (user_name, role) in metadata.read().await.members().await? {
             builder.append_row(user_name, role.name());
         }
 

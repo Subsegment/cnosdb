@@ -195,7 +195,7 @@ impl QueryExecutor {
                         .tenant_meta(&tenant)
                         .await
                     {
-                        meta_client
+                        meta_client.read().await
                             .limiter()
                             .check_data_out(get_record_batch_memory_size(&rsp.record))
                             .map_err(|e| CoordinatorError::MetaRequest {
@@ -249,7 +249,7 @@ impl QueryExecutor {
                         .tenant_meta(tenant.as_str())
                         .await
                     {
-                        meta_client
+                        meta_client.read().await
                             .limiter()
                             .check_data_out(get_record_batch_memory_size(&val))
                             .map_err(|e| CoordinatorError::MetaRequest {
@@ -285,7 +285,7 @@ impl QueryExecutor {
         .iter()
         {
             let buckets =
-                meta.mapping_bucket(&self.option.table_schema.db, item.min_ts, item.max_ts)?;
+                meta.read().await.mapping_bucket(&self.option.table_schema.db, item.min_ts, item.max_ts)?;
             for bucket in buckets.iter() {
                 for repl in bucket.shard_group.iter() {
                     if repl.vnodes.is_empty() {
@@ -322,7 +322,7 @@ impl QueryExecutor {
 
         let mut vnode_mapping: HashMap<u64, Vec<VnodeInfo>> = HashMap::new();
         for item in vnodes.iter() {
-            let mut repl = meta
+            let mut repl = meta.read().await
                 .get_vnode_repl_set(item.id)
                 .ok_or(CoordinatorError::VnodeNotFound { id: item.id })?;
 

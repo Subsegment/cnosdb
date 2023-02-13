@@ -30,8 +30,9 @@ impl InformationSchemaTableFactory for DatabasesFactory {
     ) -> std::result::Result<Arc<MemTable>, MetaError> {
         let mut builder = InformationSchemaDatabasesBuilder::default();
 
-        let dbs = metadata.list_databases()?;
-        let tenant = metadata.tenant();
+        let meta_r = metadata.read().await;
+        let dbs = meta_r.list_databases()?;
+        let tenant = meta_r.tenant();
         let tenant_id = tenant.id();
         let tenant_name = tenant.name();
 
@@ -41,7 +42,7 @@ impl InformationSchemaTableFactory for DatabasesFactory {
                 continue;
             }
 
-            if let Some(db_schema) = metadata.get_db_schema(&db)? {
+            if let Some(db_schema) = metadata.read().await.get_db_schema(&db)? {
                 let options = db_schema.options();
                 builder.append_row(
                     tenant_name,

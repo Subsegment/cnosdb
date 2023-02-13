@@ -56,7 +56,7 @@ impl DDLDefinitionTask for AlterTenantTask {
                     "Add user {} to tenant {} with role {:?}",
                     user_id, tenant_name, role
                 );
-                meta.add_member_with_role(*user_id, role.clone()).await?;
+                meta.read().await.add_member_with_role(*user_id, role.clone()).await?;
                 // .context(MetaSnafu)?;
             }
             AlterTenantAction::SetUser(AlterTenantSetUser { user_id, role }) => {
@@ -74,7 +74,7 @@ impl DDLDefinitionTask for AlterTenantTask {
                     "Reasign role {:?} of user {} in tenant {}",
                     role, user_id, tenant_name
                 );
-                meta.reasign_member_role(*user_id, role.clone()).await?;
+                meta.read().await.reasign_member_role(*user_id, role.clone()).await?;
                 // .context(MetaSnafu)?;
             }
             AlterTenantAction::RemoveUser(user_id) => {
@@ -87,7 +87,7 @@ impl DDLDefinitionTask for AlterTenantTask {
                 //     tenant_id: Oid
                 // ) -> Result<()>;
                 debug!("Remove user {} from tenant {}", user_id, tenant_name);
-                meta.remove_member(*user_id).await?;
+                meta.read().await.remove_member(*user_id).await?;
                 // .context(MetaSnafu)?;
             }
             AlterTenantAction::Set(options) => {

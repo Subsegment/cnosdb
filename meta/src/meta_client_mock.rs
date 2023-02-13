@@ -4,6 +4,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
+use std::borrow::Cow;
 
 use models::{
     auth::{
@@ -91,7 +92,7 @@ impl MetaClient for MockMetaClient {
         &self.tenant
     }
 
-    async fn create_db(&self, info: DatabaseSchema) -> MetaResult<()> {
+    async fn create_db(&mut self, info: DatabaseSchema) -> MetaResult<()> {
         Ok(())
     }
     async fn alter_db_schema(&self, info: &DatabaseSchema) -> MetaResult<()> {
@@ -110,27 +111,27 @@ impl MetaClient for MockMetaClient {
         Ok(false)
     }
 
-    async fn create_table(&self, schema: &TableSchema) -> MetaResult<()> {
+    async fn create_table(&mut self, schema: &TableSchema) -> MetaResult<()> {
         Ok(())
     }
 
-    async fn update_table(&self, schema: &TableSchema) -> MetaResult<()> {
+    async fn update_table(&mut self, schema: &TableSchema) -> MetaResult<()> {
         Ok(())
     }
 
-    fn get_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<TableSchema>> {
+    fn get_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<Cow<TableSchema>>> {
         Ok(None)
     }
 
-    fn get_tskv_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<TskvTableSchema>> {
-        Ok(Some(TskvTableSchema::default()))
+    fn get_tskv_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<Cow<TskvTableSchema>>> {
+        Ok(None)
     }
 
     fn get_external_table_schema(
         &self,
         db: &str,
         table: &str,
-    ) -> MetaResult<Option<ExternalTableSchema>> {
+    ) -> MetaResult<Option<Cow<ExternalTableSchema>>> {
         Ok(None)
     }
 
@@ -142,7 +143,7 @@ impl MetaClient for MockMetaClient {
         Ok(())
     }
 
-    async fn create_bucket(&self, db: &str, ts: i64) -> MetaResult<BucketInfo> {
+    async fn create_bucket(&mut self, db: &str, ts: i64) -> MetaResult<BucketInfo> {
         Ok(BucketInfo::default())
     }
 
@@ -155,7 +156,7 @@ impl MetaClient for MockMetaClient {
     }
 
     async fn locate_replcation_set_for_write(
-        &self,
+        &mut self,
         db: &str,
         hash_id: u64,
         ts: i64,
@@ -251,7 +252,7 @@ impl MetaClient for MockMetaClient {
         Ok(())
     }
 
-    async fn process_watch_log(&self, entry: &EntryLog) -> MetaResult<()> {
+    async fn process_watch_log(&mut self, entry: &EntryLog) -> MetaResult<()> {
         Ok(())
     }
 

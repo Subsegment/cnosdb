@@ -50,7 +50,7 @@ impl DDLDefinitionTask for CreateRoleTask {
                 },
             })?;
 
-        let role = meta.custom_role(name).await?;
+        let role = meta.read().await.custom_role(name).await?;
         // .context(MetaSnafu)?;
 
         match (if_not_exists, role) {
@@ -79,7 +79,7 @@ impl DDLDefinitionTask for CreateRoleTask {
                     name, tenant_name, inherit_tenant_role
                 );
 
-                meta.create_custom_role(
+                meta.read().await.create_custom_role(
                     name.to_string(),
                     inherit_tenant_role.clone(),
                     Default::default(),

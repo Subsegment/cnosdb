@@ -178,7 +178,7 @@ impl PromRemoteSqlServer {
         let mut results = Vec::with_capacity(read_request.queries.len());
         for q in read_request.queries {
             let mut timeseries: Vec<TimeSeries> = Vec::new();
-            let sqls = build_sql_with_table(ctx, &meta, q)?;
+            let sqls = build_sql_with_table(ctx, &meta, q).await?;
 
             debug!("Prepare to execute: {:?}", sqls);
 
@@ -239,7 +239,7 @@ impl PromRemoteSqlServer {
     }
 }
 
-fn build_sql_with_table(
+async fn build_sql_with_table(
     ctx: &Context,
     meta: &MetaClientRef,
     query: PromQuery,
@@ -268,12 +268,13 @@ fn build_sql_with_table(
                 Type::EQ => {
                     // Get schema of the specified table
                     let table_name = &m.value;
-                    let table = meta
+                    let meta_r = meta.read().await;
+                    let table = meta_r
                         .get_tskv_table_schema(ctx.database(), table_name)?
                         .ok_or_else(|| MetaError::TableNotFound {
                             table: table_name.to_string(),
                         })?;
-                    tables = vec![table];
+                    tables = vec![table.as_ref().clone()];
                 }
                 Type::RE => {
                     // Filter table names through regular expressions,
@@ -283,22 +284,23 @@ fn build_sql_with_table(
                             source: Box::new(err),
                         })?;
 
-                    tables = meta
-                        .list_tables(ctx.database())?
+                    let meta_r = meta.read().await.list_tables(ctx.database())?;
+                    let table_names = meta_r
                         .iter()
-                        .filter(|e| pattern.is_match(e))
-                        .flat_map(|table_name| {
-                            if let Ok(s) = meta.get_tskv_table_schema(ctx.database(), table_name) {
-                                s
-                            } else {
-                                warn!(
+                        .filter(|e| pattern.is_match(e)).collect::<Vec<_>>();
+                    let mut tables = Vec::with_capacity(table_names.len());
+                    for table_name in table_names {
+                        let meta_r = meta.read().await;
+                        if let Ok(s) = meta_r.get_tskv_table_schema(ctx.database(), table_name) {
+                            tables.push(s.map(|schema| {schema.as_ref().clone()}))
+                        } else {
+                            warn!(
                                     "The table {} may have just been dropped, or it may be a bug.",
                                     table_name
                                 );
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>();
+                            tables.push(None)
+                        }
+                    }
                 }
                 _ => {
                     return Err(QueryError::InvalidRemoteReadReq { source: "non-equal or regex-non-equal matchers are not supported on the metric name yet".to_string().into() });

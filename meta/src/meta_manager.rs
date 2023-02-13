@@ -185,7 +185,7 @@ impl RemoteMetaManager {
             if len > 3 && strs[2] == key_path::TENANTS {
                 let tenant_name = strs[3];
                 if let Some(client) = self.tenant_manager.get_tenant_meta(tenant_name).await {
-                    let _ = client.process_watch_log(entry).await;
+                    let _ = client.write().await.process_watch_log(entry).await;
                 }
             } else if len == 4 && strs[2] == key_path::DATA_NODES {
                 let _ = self.admin_meta().process_watch_log(entry).await;
@@ -258,8 +258,8 @@ impl MetaManager for RemoteMetaManager {
                     tenant: tenant_name.to_string(),
                 })?;
 
-            let tenant_id = *client.tenant().id();
-            let role = client.member_role(user_desc.id()).await?.ok_or_else(|| {
+            let tenant_id = *client.read().await.tenant().id();
+            let role = client.read().await.member_role(user_desc.id()).await?.ok_or_else(|| {
                 MetaError::MemberNotFound {
                     member_name: user_desc.name().to_string(),
                     tenant_name: tenant_name.to_string(),
@@ -268,7 +268,7 @@ impl MetaManager for RemoteMetaManager {
 
             let privileges = match role {
                 TenantRoleIdentifier::System(sys_role) => sys_role.to_privileges(&tenant_id),
-                TenantRoleIdentifier::Custom(ref role_name) => client
+                TenantRoleIdentifier::Custom(ref role_name) => client.read().await
                     .custom_role(role_name)
                     .await?
                     .map(|e| e.to_privileges(&tenant_id))

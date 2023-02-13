@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -107,10 +108,10 @@ impl TenantMetaData {
         }
     }
 
-    pub fn table_schema(&self, db: &str, tab: &str) -> Option<TableSchema> {
+    pub fn table_schema(&self, db: &str, tab: &str) -> Option<Cow<TableSchema>> {
         if let Some(info) = self.dbs.get(db) {
             if let Some(schema) = info.tables.get(tab) {
-                return Some(schema.clone());
+                return Some(Cow::Borrowed(schema));
             }
         }
 

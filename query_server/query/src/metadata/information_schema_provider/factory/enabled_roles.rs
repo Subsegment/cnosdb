@@ -30,7 +30,7 @@ impl InformationSchemaTableFactory for EnabledRolesFactory {
     ) -> std::result::Result<Arc<MemTable>, MetaError> {
         let mut builder = InformationSchemaEnabledRolesBuilder::default();
 
-        if let Some(role) = metadata.member_role(user.desc().id()).await? {
+        if let Some(role) = metadata.read().await.member_role(user.desc().id()).await? {
             builder.append_row(role.name());
         }
 

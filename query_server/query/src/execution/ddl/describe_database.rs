@@ -37,7 +37,7 @@ async fn describe_database(database_name: &str, machine: QueryStateMachineRef) -
         .ok_or(MetaError::TenantNotFound {
             tenant: tenant.to_string(),
         })?;
-    let db_cfg = client
+    let db_cfg = client.read().await
         .get_db_schema(database_name)?
         .ok_or(MetaError::DatabaseNotFound {
             database: database_name.to_string(),

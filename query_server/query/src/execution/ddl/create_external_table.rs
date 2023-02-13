@@ -56,7 +56,8 @@ impl DDLDefinitionTask for CreateExternalTableTask {
             })?;
         // .context(spi::MetaSnafu)?;
 
-        let table = client.get_external_table_schema(&table_name.schema, &table_name.table)?;
+        let client_r = client.read().await;
+        let table = client_r.get_external_table_schema(&table_name.schema, &table_name.table)?;
         // .context(spi::MetaSnafu)?;
 
         match (if_not_exists, table) {
@@ -102,7 +103,9 @@ async fn create_exernal_table(
         })?;
     // .context(MetaSnafu)?;
 
-    Ok(client
+    let mut client_w = client.write().await;
+
+    Ok(client_w
         .create_table(&TableSchema::ExternalTableSchema(schema))
         .await?)
     // .context(MetaSnafu)

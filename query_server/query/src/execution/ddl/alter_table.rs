@@ -32,11 +32,11 @@ impl DDLDefinitionTask for AlterTableTask {
                 tenant: tenant.to_string(),
             })?;
 
-        let mut schema = client
+        let mut schema = client.read().await
             .get_tskv_table_schema(table_name.database(), table_name.table())?
             .ok_or(MetaError::TableNotFound {
                 table: table_name.to_string(),
-            })?;
+            })?.as_ref().clone();
 
         let req = match &self.stmt.alter_action {
             AlterTableAction::AddColumn { table_column } => {
@@ -82,7 +82,7 @@ impl DDLDefinitionTask for AlterTableTask {
         };
         schema.schema_id += 1;
 
-        client
+        client.write().await
             .update_table(&TableSchema::TsKvTableSchema(schema.to_owned()))
             .await?;
         query_state_machine

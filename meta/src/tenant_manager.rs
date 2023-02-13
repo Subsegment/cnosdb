@@ -112,7 +112,7 @@ impl TenantManager for RemoteTenantManager {
                 self.tenants
                     .write()
                     .await
-                    .insert(client.tenant().name().to_string(), client.clone());
+                    .insert(client.read().await.tenant().name().to_string(), client.clone());
 
                 Ok(client)
             }
@@ -129,7 +129,7 @@ impl TenantManager for RemoteTenantManager {
 
     async fn tenant(&self, name: &str) -> MetaResult<Option<Tenant>> {
         if let Some(client) = self.tenants.read().await.get(name) {
-            return Ok(Some(client.tenant().clone()));
+            return Ok(Some(client.read().await.tenant().clone()));
         }
 
         let req = command::ReadCommand::Tenant(self.cluster_name.clone(), name.to_string());
@@ -179,10 +179,11 @@ impl TenantManager for RemoteTenantManager {
                     self.node_id,
                 )
                 .await?;
+                let tenant_name = client.read().await.tenant().name().to_string();
                 self.tenants
                     .write()
                     .await
-                    .insert(client.tenant().name().to_string(), client);
+                    .insert(tenant_name, client);
 
                 Ok(())
             }
@@ -236,7 +237,7 @@ impl TenantManager for RemoteTenantManager {
                     } else {
                         tenants.insert(tenant_name, client.clone());
 
-                        let _ = self.ver_sender.send(client.version().await).await;
+                        let _ = self.ver_sender.send(client.read().await.version().await).await;
 
                         return Some(client);
                     }
@@ -270,7 +271,7 @@ impl TenantManager for RemoteTenantManager {
             }
         };
 
-        let mut options = old_client.tenant().options().to_owned();
+        let mut options = old_client.read().await.tenant().options().to_owned();
         options.set_limiter(limiter_config);
 
         let req = command::WriteCommand::AlterTenant(
@@ -310,7 +311,7 @@ impl TenantManager for RemoteTenantManager {
     async fn expired_bucket(&self) -> Vec<ExpiredBucketInfo> {
         let mut list = vec![];
         for (key, val) in self.tenants.write().await.iter() {
-            list.append(&mut val.expired_bucket());
+            list.append(&mut val.read().await.expired_bucket());
         }
 
         list

@@ -118,21 +118,21 @@ impl MetadataProvider {
             return Ok(provider_as_source(mem_table));
         }
 
-        let df_table_source = match self
-            .meta_client
+        let meta_client_r = futures::executor::block_on(self.meta_client.read());
+        let df_table_source = match meta_client_r
             .get_table_schema(database_name, table_name)
             .map_err(|e| DataFusionError::External(Box::new(e)))?
         {
-            Some(table) => match table {
+            Some(table) => match table.as_ref() {
                 TableSchema::TsKvTableSchema(schema) => {
-                    provider_as_source(Arc::new(ClusterTable::new(self.coord.clone(), schema)))
+                    provider_as_source(Arc::new(ClusterTable::new(self.coord.clone(), schema.clone())))
                 }
                 TableSchema::ExternalTableSchema(schema) => {
                     let table_path = ListingTableUrl::parse(&schema.location)?;
                     let options = schema.table_options()?;
                     let config = ListingTableConfig::new(table_path)
                         .with_listing_options(options)
-                        .with_schema(Arc::new(schema.schema));
+                        .with_schema(Arc::new(schema.schema.clone()));
                     provider_as_source(Arc::new(ListingTable::try_new(config)?))
                 }
             },

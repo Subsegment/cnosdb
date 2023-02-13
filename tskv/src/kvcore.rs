@@ -654,19 +654,6 @@ impl Engine for TsKv {
         Ok(())
     }
 
-    async fn get_table_schema(
-        &self,
-        tenant: &str,
-        database: &str,
-        tab: &str,
-    ) -> Result<Option<TskvTableSchema>> {
-        if let Some(db) = self.version_set.read().await.get_db(tenant, database) {
-            let val = db.read().await.get_table_schema(tab)?;
-            return Ok(val);
-        }
-        Ok(None)
-    }
-
     async fn get_series_id_by_filter(
         &self,
         id: u32,
@@ -840,14 +827,19 @@ impl Engine for TsKv {
         column_name: &str,
     ) -> Result<()> {
         let db = self.get_db(tenant, database).await?;
+        let meta = db.read()
+            .await
+            .get_schemas()
+            .meta();
+        let meta_r = meta.read().await;
         let schema =
-            db.read()
-                .await
-                .get_table_schema(table)?
+
+                meta_r
+                .get_tskv_table_schema(database, table)?
                 .ok_or(SchemaError::TableNotFound {
                     table: table.to_string(),
                 })?;
-        let column_id = schema
+        let column_id = schema.as_ref()
             .column(column_name)
             .ok_or(SchemaError::NotFoundField {
                 field: column_name.to_string(),

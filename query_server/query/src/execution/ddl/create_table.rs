@@ -1,8 +1,8 @@
 use crate::execution::ddl::DDLDefinitionTask;
 use async_trait::async_trait;
+use snafu::ResultExt;
 use meta::error::MetaError;
 use models::schema::{TableSchema, TskvTableSchema};
-use snafu::ResultExt;
 use spi::query::execution::{Output, QueryStateMachineRef};
 use spi::Result;
 
@@ -36,7 +36,8 @@ impl DDLDefinitionTask for CreateTableTask {
             .ok_or(MetaError::TenantNotFound {
                 tenant: tenant.to_string(),
             })?;
-        let table = client.get_tskv_table_schema(name.database(), name.table())?;
+        let client_r = client.read().await;
+        let table = client_r.get_tskv_table_schema(name.database(), name.table())?;
 
         match (if_not_exists, table) {
             // do not create if exists
@@ -66,8 +67,8 @@ async fn create_table(stmt: &CreateTable, machine: QueryStateMachineRef) -> Resu
         .ok_or(MetaError::TenantNotFound {
             tenant: tenant.to_string(),
         })?;
-    // .context(MetaSnafu)?;
-    client
+    let mut client_r = client.write().await;
+    client_r
         .create_table(&TableSchema::TsKvTableSchema(table_schema))
         .await
         .context(spi::MetaSnafu)

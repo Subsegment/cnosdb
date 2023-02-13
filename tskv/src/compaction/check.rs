@@ -141,8 +141,10 @@ pub(crate) async fn get_ts_family_hash_tree(
     let schemas = database.get_schemas();
     let mut cid_table_name_map: HashMap<ColumnId, Rc<String>> = HashMap::new();
     let mut cid_col_name_map: HashMap<ColumnId, String> = HashMap::new();
-    for tab in schemas.list_tables()? {
-        match schemas.get_table_schema(&tab)? {
+    for tab in schemas.list_tables().await? {
+        let meta = schemas.meta();
+        let meta_r = meta.read().await;
+        match meta_r.get_tskv_table_schema(schemas.database_name(), &tab)? {
             Some(sch) => {
                 let shared_tab = Rc::new(tab);
                 for col in sch.columns() {
@@ -157,7 +159,7 @@ pub(crate) async fn get_ts_family_hash_tree(
             }
         }
     }
-    let time_range_nanosec = get_default_time_range(schemas)?;
+    let time_range_nanosec = get_default_time_range(schemas).await?;
 
     // let ts_family_rlock = ts_family.read();
     // let version = ts_family_rlock.version();
@@ -234,8 +236,8 @@ pub(crate) async fn get_ts_family_hash_tree(
         .collect::<Vec<TableHashTreeNode>>())
 }
 
-fn get_default_time_range(db_schemas: Arc<DBschemas>) -> Result<i64> {
-    let db_schema = db_schemas.db_schema().context(error::SchemaSnafu)?;
+async fn get_default_time_range(db_schemas: Arc<DBschemas>) -> Result<i64> {
+    let db_schema = db_schemas.db_schema().await.context(error::SchemaSnafu)?;
     let tenant_name = db_schema.tenant_name();
     let database_name = db_schema.database_name();
     Ok(db_schema

@@ -65,7 +65,8 @@ impl VnodeManager {
             id: new_id,
             node_id: self.node_id,
         }];
-        meta_client
+        let meta_client_r = meta_client.read().await;
+        meta_client_r
             .update_replication_set(
                 &all_info.db_name,
                 all_info.bucket_id,
@@ -103,7 +104,8 @@ impl VnodeManager {
                 id: vnode_id,
                 node_id: all_info.node_id,
             }];
-            meta_client
+            let meta_client_r = meta_client.read().await;
+            meta_client_r
                 .update_replication_set(
                     &all_info.db_name,
                     all_info.bucket_id,
@@ -282,10 +284,13 @@ impl VnodeManager {
         vnode_id: u32,
     ) -> CoordinatorResult<VnodeAllInfo> {
         match self.meta.tenant_manager().tenant_meta(tenant).await {
-            Some(meta_client) => match meta_client.get_vnode_all_info(vnode_id) {
-                Some(all_info) => Ok(all_info),
-                None => Err(CoordinatorError::VnodeNotFound { id: vnode_id }),
-            },
+            Some(meta_client) => {
+                let meta_r = meta_client.read().await;
+                match meta_r.get_vnode_all_info(vnode_id) {
+                    Some(all_info) => Ok(all_info),
+                    None => Err(CoordinatorError::VnodeNotFound { id: vnode_id }),
+                }
+            }
 
             None => Err(CoordinatorError::TenantNotFound {
                 name: tenant.to_string(),

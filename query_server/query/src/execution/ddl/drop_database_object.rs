@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use coordinator::command;
 use snafu::ResultExt;
+use coordinator::command;
 use spi::query::{
     execution::{Output, QueryStateMachineRef},
     logical_planner::{DatabaseObjectType, DropDatabaseObject},
@@ -60,7 +60,8 @@ impl DDLDefinitionTask for DropDatabaseObjectTask {
                     .exec_admin_stat_on_all_node(req)
                     .await?;
 
-                client
+                let client_r = client.read().await;
+                client_r
                     .drop_table(object_name.database(), object_name.table())
                     .await
             }

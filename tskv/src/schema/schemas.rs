@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use crate::schema::error::{MetaSnafu, Result, SchemaError};
 use meta::error::MetaError;
 use meta::meta_manager::RemoteMetaManager;
@@ -34,8 +35,8 @@ impl DBschemas {
             .ok_or(SchemaError::TenantNotFound {
                 tenant: db_schema.tenant_name().to_string(),
             })?;
-        if client.get_db_schema(db_schema.database_name())?.is_none() {
-            client.create_db(db_schema.clone()).await?;
+        if client.read().await.get_db_schema(db_schema.database_name())?.is_none() {
+            client.write().await.create_db(db_schema.clone()).await?;
         }
         Ok(Self {
             tenant_name: db_schema.tenant_name().to_string(),
@@ -44,8 +45,8 @@ impl DBschemas {
         })
     }
 
-    pub fn database_name(&self) -> String {
-        self.database_name.clone()
+    pub fn database_name(&self) -> &str {
+        self.database_name.as_str()
     }
 
     pub fn alter_db_schema(&self, db_schema: DatabaseSchema) -> Result<()> {
@@ -53,11 +54,11 @@ impl DBschemas {
         Ok(())
     }
 
-    pub fn check_field_type_from_cache(&self, info: &Point) -> Result<()> {
+    pub async fn check_field_type_from_cache(&self, info: &Point<'_>) -> Result<()> {
         let table_name =
             unsafe { String::from_utf8_unchecked(info.tab().unwrap().bytes().to_vec()) };
-        let schema = self
-            .client
+        let client = self.client.read().await;
+        let schema = client
             .get_tskv_table_schema(&self.database_name, &table_name)?
             .ok_or(SchemaError::DatabaseNotFound {
                 database: self.database_name.clone(),
@@ -104,16 +105,17 @@ impl DBschemas {
         let table_name =
             unsafe { String::from_utf8_unchecked(info.tab().unwrap().bytes().to_vec()) };
         let db_name = unsafe { String::from_utf8_unchecked(info.db().unwrap().bytes().to_vec()) };
-        let schema = self.client.get_tskv_table_schema(&db_name, &table_name)?;
-        let mut new_schema = false;
+        let client_r = self.client.read().await;
+        let schema = client_r.get_tskv_table_schema(&db_name, &table_name)?;
+        let mut is_new_schema = false;
+        let mut new_schema = TskvTableSchema::default();
         let mut schema = match schema {
             None => {
-                let mut schema = TskvTableSchema::default();
-                schema.tenant = self.tenant_name.clone();
-                schema.db = db_name;
-                schema.name = table_name;
-                new_schema = true;
-                schema
+                new_schema.tenant = self.tenant_name.clone();
+                new_schema.db = db_name;
+                new_schema.name = table_name;
+                is_new_schema = true;
+                Cow::Borrowed(&new_schema)
             }
             Some(schema) => schema,
         };
@@ -143,7 +145,7 @@ impl DBschemas {
                 None => {
                     schema_change = true;
                     field.id = schema.columns().len() as ColumnId;
-                    schema.add_column(field.clone());
+                    schema.to_mut().add_column(field.clone());
                 }
             }
             Ok(())
@@ -172,45 +174,46 @@ impl DBschemas {
         }
 
         //schema changed store it
-        if new_schema {
-            schema.schema_id = 0;
+        if is_new_schema {
+            schema.to_mut().schema_id = 0;
+            let schema = schema.as_ref().clone();
+            drop(client_r);
             self.client
-                .create_table(&TableSchema::TsKvTableSchema(schema.clone()))
+                .write().await
+                .create_table(&TableSchema::TsKvTableSchema(schema))
                 .await?;
         } else if schema_change {
-            schema.schema_id += 1;
-            self.client
-                .update_table(&TableSchema::TsKvTableSchema(schema.clone()))
+            schema.to_mut().schema_id += 1;
+            let schema = schema.as_ref().clone();
+            drop(client_r);
+            self.client.write().await
+                .update_table(&TableSchema::TsKvTableSchema(schema))
                 .await?;
         }
         Ok(())
     }
 
-    pub fn get_table_schema(&self, tab: &str) -> Result<Option<TskvTableSchema>> {
-        let schema = self
-            .client
-            .get_tskv_table_schema(&self.database_name, tab)?;
-
-        Ok(schema)
-    }
-
-    pub fn list_tables(&self) -> Result<Vec<String>> {
-        let tables = self.client.list_tables(&self.database_name)?;
+    pub async fn list_tables(&self) -> Result<Vec<String>> {
+        let tables = self.client.read().await.list_tables(&self.database_name)?;
         Ok(tables)
     }
 
     pub async fn del_table_schema(&self, tab: &str) -> Result<()> {
-        self.client.drop_table(&self.database_name, tab).await?;
+        self.client.read().await.drop_table(&self.database_name, tab).await?;
         Ok(())
     }
 
-    pub fn db_schema(&self) -> Result<DatabaseSchema> {
+    pub async fn db_schema(&self) -> Result<DatabaseSchema> {
         let db_schema =
-            self.client
+            self.client.read().await
                 .get_db_schema(&self.database_name)?
                 .ok_or(MetaError::DatabaseNotFound {
                     database: self.database_name.clone(),
                 })?;
         Ok(db_schema)
+    }
+
+    pub fn meta(&self) -> MetaClientRef {
+        self.client.clone()
     }
 }

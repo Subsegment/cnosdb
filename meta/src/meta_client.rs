@@ -11,12 +11,11 @@ use models::auth::user::{User, UserDesc};
 use models::meta_data::*;
 use models::oid::{Identifier, Oid};
 use models::utils::min_num;
-use parking_lot::RwLock;
 use rand::distributions::{Alphanumeric, DistString};
 use snafu::Snafu;
 use tokio::sync::mpsc::{self, Receiver};
 
-use std::borrow::BorrowMut;
+use std::borrow::{BorrowMut, Cow};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::DerefMut;
 use std::sync::Arc;
@@ -25,6 +24,7 @@ use std::time::Duration;
 use std::{fmt::Debug, io};
 use store::command;
 use tokio::net::TcpStream;
+use tokio::sync::RwLock;
 
 use trace::{debug, error, info, warn};
 
@@ -89,26 +89,26 @@ pub trait MetaClient: Send + Sync + Debug {
     ) -> MetaResult<()>;
     async fn drop_custom_role(&self, role_name: &str) -> MetaResult<bool>;
 
-    async fn create_db(&self, info: DatabaseSchema) -> MetaResult<()>;
+    async fn create_db(&mut self, info: DatabaseSchema) -> MetaResult<()>;
     async fn alter_db_schema(&self, info: &DatabaseSchema) -> MetaResult<()>;
     fn get_db_schema(&self, name: &str) -> MetaResult<Option<DatabaseSchema>>;
     fn get_db_info(&self, name: &str) -> MetaResult<Option<DatabaseInfo>>;
     fn list_databases(&self) -> MetaResult<Vec<String>>;
     async fn drop_db(&self, name: &str) -> MetaResult<bool>;
 
-    async fn create_table(&self, schema: &TableSchema) -> MetaResult<()>;
-    async fn update_table(&self, schema: &TableSchema) -> MetaResult<()>;
-    fn get_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<TableSchema>>;
-    fn get_tskv_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<TskvTableSchema>>;
+    async fn create_table(&mut self, schema: &TableSchema) -> MetaResult<()>;
+    async fn update_table(&mut self, schema: &TableSchema) -> MetaResult<()>;
+    fn get_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<Cow<TableSchema>>>;
+    fn get_tskv_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<Cow<TskvTableSchema>>>;
     fn get_external_table_schema(
         &self,
         db: &str,
         table: &str,
-    ) -> MetaResult<Option<ExternalTableSchema>>;
+    ) -> MetaResult<Option<Cow<ExternalTableSchema>>>;
     fn list_tables(&self, db: &str) -> MetaResult<Vec<String>>;
     async fn drop_table(&self, db: &str, table: &str) -> MetaResult<()>;
 
-    async fn create_bucket(&self, db: &str, ts: i64) -> MetaResult<BucketInfo>;
+    async fn create_bucket(&mut self, db: &str, ts: i64) -> MetaResult<BucketInfo>;
     async fn delete_bucket(&self, db: &str, id: u32) -> MetaResult<()>;
 
     fn database_min_ts(&self, db: &str) -> Option<i64>;
@@ -120,7 +120,7 @@ pub trait MetaClient: Send + Sync + Debug {
     fn mapping_bucket(&self, db_name: &str, start: i64, end: i64) -> MetaResult<Vec<BucketInfo>>;
 
     async fn locate_replcation_set_for_write(
-        &self,
+        &mut self,
         db: &str,
         hash_id: u64,
         ts: i64,
@@ -137,7 +137,7 @@ pub trait MetaClient: Send + Sync + Debug {
 
     async fn version(&self) -> u64;
 
-    async fn process_watch_log(&self, entry: &EntryLog) -> MetaResult<()>;
+    async fn process_watch_log(&mut self, entry: &EntryLog) -> MetaResult<()>;
 
     fn print_data(&self) -> String;
 
@@ -150,8 +150,7 @@ pub struct RemoteMetaClient {
     tenant: Tenant,
     meta_url: String,
     limiter: Arc<dyn Limiter>,
-
-    data: RwLock<TenantMetaData>,
+    data: TenantMetaData,
     client: MetaHttpClient,
 }
 
@@ -161,27 +160,27 @@ impl RemoteMetaClient {
         tenant: Tenant,
         meta_url: String,
         node_id: u64,
-    ) -> MetaResult<Arc<Self>> {
+    ) -> MetaResult<Arc<RwLock<Self>>> {
         let limiter: Arc<dyn Limiter> = match &tenant.options().limiter_config {
             Some(config) => Arc::new(LimiterImpl::from(config)),
             None => Arc::new(NoneLimiter),
         };
 
-        let client = Arc::new(Self {
+        let client = Arc::new(RwLock::new(Self {
             cluster,
             tenant,
             limiter,
             meta_url: meta_url.clone(),
-            data: RwLock::new(TenantMetaData::new()),
+            data: TenantMetaData::new(),
             client: MetaHttpClient::new(1, meta_url),
-        });
+        }));
 
-        client.sync_all_tenant_metadata().await?;
+        client.write().await.sync_all_tenant_metadata().await?;
 
         Ok(client)
     }
 
-    async fn sync_all_tenant_metadata(&self) -> MetaResult<()> {
+    async fn sync_all_tenant_metadata(&mut self) -> MetaResult<()> {
         let req = command::ReadCommand::TenaneMetaData(self.cluster.clone(), self.tenant_name());
         let resp = self
             .client
@@ -193,9 +192,8 @@ impl RemoteMetaClient {
             });
         }
 
-        let mut data = self.data.write();
-        if resp.data.version > data.version {
-            *data = resp.data;
+        if resp.data.version > self.data.version {
+            self.data = resp.data;
         }
 
         Ok(())
@@ -209,7 +207,7 @@ impl MetaClient for RemoteMetaClient {
     }
 
     async fn version(&self) -> u64 {
-        self.data.read().version
+        self.data.version
     }
 
     // tenant member start
@@ -220,7 +218,7 @@ impl MetaClient for RemoteMetaClient {
         role: TenantRoleIdentifier,
     ) -> MetaResult<()> {
         {
-            let user_number = self.data.read().users.len();
+            let user_number = self.data.users.len();
             self.limiter().check_add_user(user_number)?;
         }
 
@@ -474,8 +472,8 @@ impl MetaClient for RemoteMetaClient {
 
     // tenant role end
 
-    async fn create_db(&self, mut schema: DatabaseSchema) -> MetaResult<()> {
-        let db_number = self.data.read().dbs.len();
+    async fn create_db(&mut self, mut schema: DatabaseSchema) -> MetaResult<()> {
+        let db_number = self.data.dbs.len();
         self.limiter().check_create_db(db_number, &mut schema)?;
         let req = command::WriteCommand::CreateDB(
             self.cluster.clone(),
@@ -487,12 +485,11 @@ impl MetaClient for RemoteMetaClient {
             .client
             .write::<command::TenaneMetaDataResp>(&req)
             .await?;
-        let mut data = self.data.write();
-        if rsp.data.version > data.version {
-            *data = rsp.data;
+        if rsp.data.version > self.data.version {
+            self.data = rsp.data;
         }
 
-        if rsp.status.code == command::META_REQUEST_SUCCESS {
+        if rsp.status.code == META_REQUEST_SUCCESS {
             Ok(())
         } else if rsp.status.code == command::META_REQUEST_DB_EXIST {
             Err(MetaError::DatabaseAlreadyExists {
@@ -512,7 +509,7 @@ impl MetaClient for RemoteMetaClient {
         let rsp = self.client.write::<command::StatusResponse>(&req).await?;
         info!("alter db: {:?}; {:?}", req, rsp);
 
-        if rsp.code == command::META_REQUEST_SUCCESS {
+        if rsp.code == META_REQUEST_SUCCESS {
             Ok(())
         } else {
             Err(MetaError::CommonError {
@@ -522,7 +519,7 @@ impl MetaClient for RemoteMetaClient {
     }
 
     fn get_db_schema(&self, name: &str) -> MetaResult<Option<DatabaseSchema>> {
-        if let Some(db) = self.data.read().dbs.get(name) {
+        if let Some(db) = self.data.dbs.get(name) {
             return Ok(Some(db.schema.clone()));
         }
 
@@ -530,12 +527,12 @@ impl MetaClient for RemoteMetaClient {
     }
 
     fn get_db_info(&self, name: &str) -> MetaResult<Option<DatabaseInfo>> {
-        Ok(self.data.read().dbs.get(name).cloned())
+        Ok(self.data.dbs.get(name).cloned())
     }
 
     fn list_databases(&self) -> MetaResult<Vec<String>> {
         let mut list = vec![];
-        for (k, _) in self.data.read().dbs.iter() {
+        for (k, _) in self.data.dbs.iter() {
             list.push(k.clone());
         }
 
@@ -544,7 +541,7 @@ impl MetaClient for RemoteMetaClient {
 
     async fn drop_db(&self, name: &str) -> MetaResult<bool> {
         let mut exist = false;
-        if self.data.read().dbs.contains_key(name) {
+        if self.data.dbs.contains_key(name) {
             exist = true;
         }
 
@@ -557,7 +554,7 @@ impl MetaClient for RemoteMetaClient {
         let rsp = self.client.write::<command::StatusResponse>(&req).await?;
         info!("drop db: {:?}; {:?}", req, rsp);
 
-        if rsp.code == command::META_REQUEST_SUCCESS {
+        if rsp.code == META_REQUEST_SUCCESS {
             Ok(exist)
         } else {
             Err(MetaError::CommonError {
@@ -566,7 +563,7 @@ impl MetaClient for RemoteMetaClient {
         }
     }
 
-    async fn create_table(&self, schema: &TableSchema) -> MetaResult<()> {
+    async fn create_table(&mut self, schema: &TableSchema) -> MetaResult<()> {
         let req = command::WriteCommand::CreateTable(
             self.cluster.clone(),
             self.tenant_name(),
@@ -579,12 +576,11 @@ impl MetaClient for RemoteMetaClient {
             .client
             .write::<command::TenaneMetaDataResp>(&req)
             .await?;
-        let mut data = self.data.write();
-        if rsp.data.version > data.version {
-            *data = rsp.data;
+        if rsp.data.version > self.data.version {
+            self.data = rsp.data;
         }
 
-        if rsp.status.code == command::META_REQUEST_SUCCESS {
+        if rsp.status.code == META_REQUEST_SUCCESS {
             Ok(())
         } else if rsp.status.code == command::META_REQUEST_DB_NOT_FOUND {
             Err(MetaError::DatabaseNotFound {
@@ -601,13 +597,13 @@ impl MetaClient for RemoteMetaClient {
         }
     }
 
-    fn get_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<TableSchema>> {
-        return Ok(self.data.read().table_schema(db, table));
+    fn get_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<Cow<TableSchema>>> {
+        return Ok(self.data.table_schema(db, table));
     }
 
-    fn get_tskv_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<TskvTableSchema>> {
-        if let Some(TableSchema::TsKvTableSchema(val)) = self.data.read().table_schema(db, table) {
-            return Ok(Some(val));
+    fn get_tskv_table_schema(&self, db: &str, table: &str) -> MetaResult<Option<Cow<TskvTableSchema>>> {
+        if let Some(Cow::Borrowed(TableSchema::TsKvTableSchema(val))) = self.data.table_schema(db, table) {
+            return Ok(Some(Cow::Borrowed(val)));
         }
         Ok(None)
     }
@@ -616,17 +612,17 @@ impl MetaClient for RemoteMetaClient {
         &self,
         db: &str,
         table: &str,
-    ) -> MetaResult<Option<ExternalTableSchema>> {
-        if let Some(TableSchema::ExternalTableSchema(val)) =
-            self.data.read().table_schema(db, table)
+    ) -> MetaResult<Option<Cow<ExternalTableSchema>>> {
+        if let Some(Cow::Borrowed(TableSchema::ExternalTableSchema(val))) =
+            self.data.table_schema(db, table)
         {
-            return Ok(Some(val));
+            return Ok(Some(Cow::Borrowed(val)));
         }
 
         Ok(None)
     }
 
-    async fn update_table(&self, schema: &TableSchema) -> MetaResult<()> {
+    async fn update_table(&mut self, schema: &TableSchema) -> MetaResult<()> {
         let req = command::WriteCommand::UpdateTable(
             self.cluster.clone(),
             self.tenant_name(),
@@ -637,9 +633,8 @@ impl MetaClient for RemoteMetaClient {
             .client
             .write::<command::TenaneMetaDataResp>(&req)
             .await?;
-        let mut data = self.data.write();
-        if rsp.data.version > data.version {
-            *data = rsp.data;
+        if rsp.data.version > self.data.version {
+            self.data = rsp.data;
         }
 
         // TODO table not exist
@@ -649,7 +644,7 @@ impl MetaClient for RemoteMetaClient {
 
     fn list_tables(&self, db: &str) -> MetaResult<Vec<String>> {
         let mut list = vec![];
-        if let Some(info) = self.data.read().dbs.get(db) {
+        if let Some(info) = self.data.dbs.get(db) {
             for (k, _) in info.tables.iter() {
                 list.push(k.clone());
             }
@@ -668,7 +663,7 @@ impl MetaClient for RemoteMetaClient {
 
         let rsp = self.client.write::<command::StatusResponse>(&req).await?;
 
-        if rsp.code == command::META_REQUEST_SUCCESS {
+        if rsp.code == META_REQUEST_SUCCESS {
             Ok(())
         } else {
             Err(MetaError::CommonError {
@@ -677,7 +672,7 @@ impl MetaClient for RemoteMetaClient {
         }
     }
 
-    async fn create_bucket(&self, db: &str, ts: i64) -> MetaResult<BucketInfo> {
+    async fn create_bucket(&mut self, db: &str, ts: i64) -> MetaResult<BucketInfo> {
         let req = command::WriteCommand::CreateBucket(
             self.cluster.clone(),
             self.tenant_name(),
@@ -690,9 +685,8 @@ impl MetaClient for RemoteMetaClient {
             .write::<command::TenaneMetaDataResp>(&req)
             .await?;
         {
-            let mut data = self.data.write();
-            if rsp.data.version > data.version {
-                *data = rsp.data;
+            if rsp.data.version > self.data.version {
+                self.data = rsp.data;
             }
         }
 
@@ -702,7 +696,7 @@ impl MetaClient for RemoteMetaClient {
             });
         }
 
-        if let Some(bucket) = self.data.read().bucket_by_timestamp(db, ts) {
+        if let Some(bucket) = self.data.bucket_by_timestamp(db, ts) {
             return Ok(bucket.clone());
         }
 
@@ -722,7 +716,7 @@ impl MetaClient for RemoteMetaClient {
         let rsp = self.client.write::<command::StatusResponse>(&req).await?;
         info!("delete bucket: {:?}; {:?}", req, rsp);
 
-        if rsp.code == command::META_REQUEST_SUCCESS {
+        if rsp.code == META_REQUEST_SUCCESS {
             Ok(())
         } else {
             Err(MetaError::CommonError {
@@ -753,7 +747,7 @@ impl MetaClient for RemoteMetaClient {
         let rsp = self.client.write::<command::StatusResponse>(&req).await?;
         info!("update replication set: {:?}; {:?}", req, rsp);
 
-        if rsp.code == command::META_REQUEST_SUCCESS {
+        if rsp.code == META_REQUEST_SUCCESS {
             Ok(())
         } else {
             Err(MetaError::CommonError {
@@ -763,8 +757,7 @@ impl MetaClient for RemoteMetaClient {
     }
 
     fn get_vnode_all_info(&self, id: u32) -> Option<VnodeAllInfo> {
-        let data = self.data.read();
-        for (db_name, db_info) in data.dbs.iter() {
+        for (db_name, db_info) in self.data.dbs.iter() {
             for bucket in db_info.buckets.iter() {
                 for repl_set in bucket.shard_group.iter() {
                     for vnode_info in repl_set.vnodes.iter() {
@@ -790,8 +783,7 @@ impl MetaClient for RemoteMetaClient {
     }
 
     fn get_vnode_repl_set(&self, id: u32) -> Option<ReplicationSet> {
-        let data = self.data.read();
-        for (db_name, db_info) in data.dbs.iter() {
+        for (db_name, db_info) in self.data.dbs.iter() {
             for bucket in db_info.buckets.iter() {
                 for repl_set in bucket.shard_group.iter() {
                     for vnode_info in repl_set.vnodes.iter() {
@@ -807,16 +799,16 @@ impl MetaClient for RemoteMetaClient {
     }
 
     fn database_min_ts(&self, name: &str) -> Option<i64> {
-        self.data.read().database_min_ts(name)
+        self.data.database_min_ts(name)
     }
 
     async fn locate_replcation_set_for_write(
-        &self,
+        &mut self,
         db: &str,
         hash_id: u64,
         ts: i64,
     ) -> MetaResult<ReplicationSet> {
-        if let Some(bucket) = self.data.read().bucket_by_timestamp(db, ts) {
+        if let Some(bucket) = self.data.bucket_by_timestamp(db, ts) {
             return Ok(bucket.vnode_for(hash_id));
         }
 
@@ -826,14 +818,14 @@ impl MetaClient for RemoteMetaClient {
     }
 
     fn mapping_bucket(&self, db_name: &str, start: i64, end: i64) -> MetaResult<Vec<BucketInfo>> {
-        let buckets = self.data.read().mapping_bucket(db_name, start, end);
+        let buckets = self.data.mapping_bucket(db_name, start, end);
 
         Ok(buckets)
     }
 
     fn expired_bucket(&self) -> Vec<ExpiredBucketInfo> {
         let mut list = vec![];
-        for (key, val) in self.data.read().dbs.iter() {
+        for (key, val) in self.data.dbs.iter() {
             let ttl = val.schema.config.ttl_or_default().to_nanoseconds();
             let now = models::utils::now_timestamp();
 
@@ -853,7 +845,7 @@ impl MetaClient for RemoteMetaClient {
         list
     }
 
-    async fn process_watch_log(&self, entry: &EntryLog) -> MetaResult<()> {
+    async fn process_watch_log(&mut self, entry: &EntryLog) -> MetaResult<()> {
         let strs: Vec<&str> = entry.key.split('/').collect();
 
         let len = strs.len();
@@ -865,7 +857,7 @@ impl MetaClient for RemoteMetaClient {
             let tenant = strs[3];
             let db_name = strs[5];
             let tab_name = strs[7];
-            if let Some(db) = self.data.write().dbs.get_mut(db_name) {
+            if let Some(db) = self.data.dbs.get_mut(db_name) {
                 if entry.tye == command::ENTRY_LOG_TYPE_SET {
                     if let Ok(info) = serde_json::from_str::<TableSchema>(&entry.val) {
                         db.tables.insert(tab_name.to_string(), info);
@@ -881,7 +873,7 @@ impl MetaClient for RemoteMetaClient {
         {
             let tenant = strs[3];
             let db_name = strs[5];
-            if let Some(db) = self.data.write().dbs.get_mut(db_name) {
+            if let Some(db) = self.data.dbs.get_mut(db_name) {
                 if let Ok(bucket_id) = serde_json::from_str::<u32>(strs[7]) {
                     db.buckets.sort_by(|a, b| a.id.cmp(&b.id));
                     if entry.tye == command::ENTRY_LOG_TYPE_SET {
@@ -901,10 +893,9 @@ impl MetaClient for RemoteMetaClient {
         } else if len == 6 && strs[4] == key_path::DBS && strs[2] == key_path::TENANTS {
             let tenant = strs[3];
             let db_name = strs[5];
-            let mut data = self.data.write();
             if entry.tye == command::ENTRY_LOG_TYPE_SET {
                 if let Ok(info) = serde_json::from_str::<DatabaseSchema>(&entry.val) {
-                    let db = data
+                    let db = self.data
                         .dbs
                         .entry(db_name.to_string())
                         .or_insert_with(DatabaseInfo::default);
@@ -912,7 +903,7 @@ impl MetaClient for RemoteMetaClient {
                     db.schema = info;
                 }
             } else if entry.tye == command::ENTRY_LOG_TYPE_DEL {
-                data.dbs.remove(db_name);
+                self.data.dbs.remove(db_name);
             }
         } else if len == 6 && strs[4] == key_path::USERS && strs[2] == key_path::TENANTS {
         } else if len == 6 && strs[4] == key_path::MEMBERS && strs[2] == key_path::TENANTS {
@@ -926,7 +917,7 @@ impl MetaClient for RemoteMetaClient {
         info!("****** Tenant: {:?}; Meta: {}", self.tenant, self.meta_url);
         info!("****** Meta Data: {:#?}", self.data);
 
-        format!("{:#?}", self.data.read())
+        format!("{:#?}", self.data)
     }
 
     fn limiter(&self) -> Arc<dyn Limiter> {

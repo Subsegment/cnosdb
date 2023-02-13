@@ -76,7 +76,8 @@ impl AccessControl for AccessControlNoCheck {
             .tenant_meta(tenant_name)
             .await
             .ok_or(AuthError::TenantNotFound)?;
+        let tenant_client_r = tenant_client.read().await;
 
-        Ok(*tenant_client.tenant().id())
+        Ok(*tenant_client_r.tenant().id())
     }
 }

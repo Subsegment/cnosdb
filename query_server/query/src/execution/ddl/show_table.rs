@@ -49,7 +49,7 @@ async fn show_tables(
         None => machine.session.default_database(),
         Some(v) => v.as_str(),
     };
-    let tables = client.list_tables(database_name)?;
+    let tables = client.read().await.list_tables(database_name)?;
     let schema = Arc::new(Schema::new(vec![Field::new(
         "Table",
         DataType::Utf8,

@@ -191,7 +191,7 @@ impl Database {
         let mut map = HashMap::new();
         for point in points {
             let sid = Self::build_index(&point, ts_index.clone()).await?;
-            self.build_row_data(&mut map, point, sid)?
+            self.build_row_data(&mut map, point, sid).await?
         }
         Ok(map)
     }
@@ -204,29 +204,31 @@ impl Database {
         let mut map = HashMap::new();
         for point in points {
             let sid = Self::build_index(&point, ts_index.clone()).await?;
-            if self.schemas.check_field_type_from_cache(&point).is_err() {
+            if self.schemas.check_field_type_from_cache(&point).await.is_err() {
                 self.schemas.check_field_type_or_else_add(&point).await?;
             }
 
-            self.build_row_data(&mut map, point, sid)?
+            self.build_row_data(&mut map, point, sid).await?
         }
         Ok(map)
     }
 
-    fn build_row_data(
+    async fn build_row_data(
         &self,
         map: &mut HashMap<(SeriesId, SchemaId), RowGroup>,
-        point: Point,
+        point: Point<'_>,
         sid: u32,
     ) -> Result<()> {
         let table_name = String::from_utf8(point.tab().unwrap().bytes().to_vec()).unwrap();
-        let table_schema = self.schemas.get_table_schema(&table_name)?;
+        let meta = self.schemas.meta();
+        let meta_r = meta.read().await;
+        let table_schema = meta_r.get_tskv_table_schema(self.schemas.database_name(), &table_name)?;
         let table_schema = match table_schema {
             Some(v) => v,
             None => return Ok(()),
         };
 
-        let row = RowData::point_to_row_data(point, &table_schema);
+        let row = RowData::point_to_row_data(point, table_schema.as_ref());
         let schema_size = table_schema.size();
         let schema_id = table_schema.schema_id;
         let entry = map.entry((sid, schema_id)).or_insert(RowGroup {
@@ -238,7 +240,7 @@ impl Database {
             },
             size: size_of::<RowGroup>(),
         });
-        entry.schema = table_schema;
+        entry.schema = table_schema.as_ref().clone();
         entry.size += schema_size;
         entry.range.merge(&TimeRange {
             min_ts: row.ts,
@@ -315,10 +317,6 @@ impl Database {
         }
 
         Ok(None)
-    }
-
-    pub fn get_table_schema(&self, table_name: &str) -> Result<Option<TskvTableSchema>> {
-        Ok(self.schemas.get_table_schema(table_name)?)
     }
 
     pub fn get_tsfamily(&self, id: u32) -> Option<Arc<RwLock<TseriesFamily>>> {
@@ -400,8 +398,8 @@ impl Database {
         None
     }
 
-    pub fn get_schema(&self) -> Result<DatabaseSchema> {
-        Ok(self.schemas.db_schema()?)
+    pub async fn get_schema(&self) -> Result<DatabaseSchema> {
+        Ok(self.schemas.db_schema().await?)
     }
 
     pub async fn get_ts_family_hash_tree(
@@ -430,7 +428,9 @@ pub(crate) async fn delete_table_async(
 
     if let Some(db) = db_instance {
         let schemas = db.read().await.get_schemas();
-        let field_infos = schemas.get_table_schema(&table)?;
+        let meta = schemas.meta();
+        let meta_r = meta.read().await;
+        let table_schema = meta_r.get_tskv_table_schema(&database, &table)?;
         schemas.del_table_schema(&table).await?;
 
         let mut sids = vec![];
@@ -452,12 +452,12 @@ pub(crate) async fn delete_table_async(
             sids.append(&mut ids);
         }
 
-        if let Some(fields) = field_infos {
+        if let Some(schema) = table_schema {
             debug!(
                 "Drop table: deleting series in table: {}.{}",
                 &database, &table
             );
-            let fids: Vec<ColumnId> = fields.columns().iter().map(|f| f.id).collect();
+            let fids: Vec<ColumnId> = schema.columns().iter().map(|f| f.id).collect();
             let storage_fids: Vec<u64> = sids
                 .iter()
                 .flat_map(|sid| fids.iter().map(|fid| unite_id(*fid, *sid)))

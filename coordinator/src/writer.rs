@@ -122,7 +122,7 @@ impl<'a> VnodeMapping<'a> {
         meta_client: MetaClientRef,
         point: models::Point,
     ) -> CoordinatorResult<()> {
-        if let Some(val) = meta_client.database_min_ts(&point.db) {
+        if let Some(val) = meta_client.read().await.database_min_ts(&point.db) {
             if point.timestamp < val {
                 return Err(CoordinatorError::CommonError {
                     msg: "write expired time data not permit".to_string(),
@@ -131,7 +131,7 @@ impl<'a> VnodeMapping<'a> {
         }
 
         //let full_name = format!("{}.{}", meta_client.tenant_name(), db);
-        let info = meta_client
+        let info = meta_client.write().await
             .locate_replcation_set_for_write(&point.db, point.hash_id, point.timestamp)
             .await?;
         self.sets.entry(info.id).or_insert_with(|| info.clone());

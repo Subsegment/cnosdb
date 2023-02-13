@@ -55,7 +55,7 @@ impl DDLDefinitionTask for DropTenantObjectTask {
                 //     tenant_id: &Oid
                 // ) -> Result<bool>;
                 debug!("Drop role {} of tenant {}", name, tenant_name);
-                let success = meta.drop_custom_role(name).await?;
+                let success = meta.read().await.drop_custom_role(name).await?;
 
                 if let (false, false) = (if_exist, success) {
                     return Err(QueryError::Meta {
@@ -84,7 +84,7 @@ impl DDLDefinitionTask for DropTenantObjectTask {
                     .await?;
 
                 debug!("Drop database {} of tenant {}", name, tenant_name);
-                let success = meta.drop_db(name).await?;
+                let success = meta.read().await.drop_db(name).await?;
 
                 if let (false, false) = (if_exist, success) {
                     return Err(QueryError::Meta {

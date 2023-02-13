@@ -35,7 +35,7 @@ impl InformationSchemaTableFactory for RolesFactory {
     ) -> std::result::Result<Arc<MemTable>, MetaError> {
         let mut builder = InformationSchemaRolesBuilder::default();
 
-        let tenant_id = *metadata.tenant().id();
+        let tenant_id = *metadata.read().await.tenant().id();
 
         if user.can_access_role(tenant_id) {
             // All records of this view are visible to the Owner of the current tenant.
@@ -44,7 +44,7 @@ impl InformationSchemaTableFactory for RolesFactory {
                 builder.append_row(role.name(), "system", None::<String>)
             }
 
-            for role in metadata.custom_roles().await? {
+            for role in metadata.read().await.custom_roles().await? {
                 let inherit_role = role.inherit_role();
                 builder.append_row(role.name(), "custom", Some(inherit_role.name()))
             }

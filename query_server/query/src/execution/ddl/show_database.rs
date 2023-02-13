@@ -40,7 +40,7 @@ async fn show_databases(machine: QueryStateMachineRef) -> Result<Output> {
         .ok_or(MetaError::TenantNotFound {
             tenant: tenant.to_string(),
         })?;
-    let databases = client.list_databases()?;
+    let databases = client.read().await.list_databases()?;
     let schema = Arc::new(Schema::new(vec![Field::new(
         "Database",
         DataType::Utf8,

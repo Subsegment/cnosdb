@@ -36,7 +36,7 @@ impl DDLDefinitionTask for CreateDatabaseTask {
                 tenant: tenant.to_string(),
             })?;
         // .context(MetaSnafu)?;
-        let db = client
+        let db = client.read().await
             .list_databases()?
             // .context(spi::MetaSnafu)?
             .contains(name);
@@ -77,7 +77,7 @@ async fn create_database(stmt: &CreateDatabase, machine: QueryStateMachineRef) -
 
     let mut database_schema = DatabaseSchema::new(machine.session.tenant(), name);
     database_schema.config = options.clone();
-    client.create_db(database_schema).await?;
+    client.write().await.create_db(database_schema).await?;
     // .context(spi::MetaSnafu)?;
     Ok(())
 }

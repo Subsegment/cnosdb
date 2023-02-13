@@ -35,7 +35,7 @@ impl InformationSchemaTableFactory for QueriesFactory {
         let mut builder = InformationSchemaQueriesBuilder::default();
 
         let user_id = user.desc().id();
-        let tenant_id = *metadata.tenant().id();
+        let tenant_id = *metadata.read().await.tenant().id();
 
         let queries_of_tenant = query_tracker
             .running_queries()

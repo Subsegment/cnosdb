@@ -35,9 +35,10 @@ impl InformationSchemaTableFactory for ColumnsFactory {
     ) -> std::result::Result<Arc<MemTable>, MetaError> {
         let mut builder = InformationSchemaColumnsBuilder::default();
 
-        let tenant = metadata.tenant();
+        let metadata_r = metadata.read().await;
+        let tenant = metadata_r.tenant();
 
-        let dbs = metadata.list_databases()?;
+        let dbs = metadata_r.list_databases()?;
         let tenant_id = tenant.id();
         let tenant_name = tenant.name();
 
@@ -47,10 +48,10 @@ impl InformationSchemaTableFactory for ColumnsFactory {
                 continue;
             }
 
-            let tables = metadata.list_tables(&db)?;
+            let tables = metadata.read().await.list_tables(&db)?;
             for table in tables {
-                if let Some(table) = metadata.get_table_schema(&db, &table)? {
-                    match table {
+                if let Some(table) = metadata.read().await.get_table_schema(&db, &table)? {
+                    match table.as_ref().clone() {
                         TableSchema::TsKvTableSchema(t) => {
                             append_tskv_table(tenant_name, &db, t, &mut builder);
                         }

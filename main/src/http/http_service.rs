@@ -251,7 +251,8 @@ impl HttpService {
                         }));
                     }
                 };
-                let data = meta_client.print_data();
+                let meta_r = meta_client.read().await;
+                let data = meta_r.print_data();
 
                 Ok(data)
             })
@@ -464,12 +465,14 @@ async fn construct_write_context(
         .with_database(Some(param.db))
         .build();
 
-    let tenant_id = *coord
+    let meta = coord
         .tenant_meta(context.tenant())
         .await
         .ok_or_else(|| MetaError::TenantNotFound {
             tenant: context.tenant().to_string(),
-        })?
+        })?;
+    let meta_r = meta.read().await;
+    let tenant_id = *meta_r
         .tenant()
         .id();
 

@@ -60,7 +60,7 @@ impl VersionSet {
 
             let schema = match meta.tenant_manager().tenant_meta(tenant).await {
                 None => DatabaseSchema::new(tenant, database),
-                Some(client) => match client.get_db_schema(database).context(MetaSnafu)? {
+                Some(client) => match client.read().await.get_db_schema(database).context(MetaSnafu)? {
                     None => DatabaseSchema::new(tenant, database),
                     Some(schema) => schema,
                 },
@@ -119,7 +119,7 @@ impl VersionSet {
         let db = self.dbs.get(&owner);
         match db {
             None => Ok(None),
-            Some(db) => Ok(Some(db.read().await.get_schema()?)),
+            Some(db) => Ok(Some(db.read().await.get_schema().await?)),
         }
     }
 

@@ -15,7 +15,7 @@ use snafu::ResultExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, RwLock};
 
 use trace::info;
 use tskv::engine::{EngineRef, MockEngine};
@@ -83,7 +83,7 @@ impl Coordinator for MockCoordinator {
     }
 
     async fn tenant_meta(&self, tenant: &str) -> Option<MetaClientRef> {
-        Some(Arc::new(MockMetaClient::default()))
+        Some(Arc::new(RwLock::new(MockMetaClient::default())))
     }
 
     async fn write_points(
@@ -197,7 +197,7 @@ impl CoordService {
                     name: info.tenant.clone(),
                 })?;
 
-        meta.delete_bucket(&info.database, info.bucket.id).await?;
+        meta.read().await.delete_bucket(&info.database, info.bucket.id).await?;
 
         Ok(())
     }
@@ -229,7 +229,7 @@ impl CoordService {
         vnode_id: u32,
     ) -> CoordinatorResult<VnodeAllInfo> {
         match self.tenant_meta(tenant).await {
-            Some(meta_client) => match meta_client.get_vnode_all_info(vnode_id) {
+            Some(meta_client) => match meta_client.read().await.get_vnode_all_info(vnode_id) {
                 Some(all_info) => Ok(all_info),
                 None => Err(CoordinatorError::VnodeNotFound { id: vnode_id }),
             },
@@ -308,7 +308,7 @@ impl CoordService {
 
         if let Some(meta_client) = meta.tenant_manager().tenant_meta(tenant).await {
             if let Err(e) =
-                meta_client
+                meta_client.read().await
                     .limiter()
                     .check_query()
                     .map_err(|e| CoordinatorError::MetaRequest {
@@ -409,10 +409,10 @@ impl Coordinator for CoordService {
         request: WritePointsRpcRequest,
     ) -> CoordinatorResult<()> {
         if let Some(meta_client) = self.meta.tenant_manager().tenant_meta(&tenant).await {
-            meta_client.limiter().check_write()?;
+            meta_client.read().await.limiter().check_write()?;
 
             let data_len = request.points.len();
-            meta_client.limiter().check_data_in(data_len)?;
+            meta_client.read().await.limiter().check_data_in(data_len)?;
         }
 
         let req = WritePointsRequest {

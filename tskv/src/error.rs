@@ -149,6 +149,12 @@ pub enum Error {
     },
 }
 
+impl From<MetaError> for Error{
+    fn from(value: MetaError) -> Self {
+        Self::Meta { source: value }
+    }
+}
+
 impl From<SchemaError> for Error {
     fn from(value: SchemaError) -> Self {
         match value {
