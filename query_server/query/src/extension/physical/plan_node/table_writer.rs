@@ -85,16 +85,8 @@ impl ExecutionPlan for TableWriterExec {
         None
     }
 
-    fn relies_on_input_order(&self) -> bool {
-        false
-    }
-
     fn benefits_from_input_partitioning(&self) -> bool {
         false
-    }
-
-    fn required_child_distribution(&self) -> Distribution {
-        Distribution::UnspecifiedDistribution
     }
 
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {

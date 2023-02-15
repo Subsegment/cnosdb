@@ -15,6 +15,7 @@ pub mod optimizer;
 pub mod parser;
 pub mod physical_planner;
 pub mod session;
+pub mod scheduler;
 
 pub const AFFECTED_ROWS: (&str, DataType) = ("rows", DataType::UInt64);
 

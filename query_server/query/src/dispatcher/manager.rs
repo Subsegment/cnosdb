@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use datafusion::{scheduler::Scheduler, sql::planner::ContextProvider};
+use datafusion::{ sql::planner::ContextProvider};
+use spi::query::scheduler::SchedulerRef;
 use snafu::ResultExt;
 use spi::catalog::MetaDataRef;
 use spi::query::dispatcher::{QueryInfo, QueryStatus};
@@ -157,7 +158,7 @@ pub struct SimpleQueryDispatcherBuilder {
     // cnosdb optimizer
     optimizer: Option<Arc<dyn Optimizer + Send + Sync>>,
     // TODO 需要封装 scheduler
-    scheduler: Option<Arc<Scheduler>>,
+    scheduler: Option<SchedulerRef>,
 
     queries_limit: usize,
 }
@@ -183,7 +184,7 @@ impl SimpleQueryDispatcherBuilder {
         self
     }
 
-    pub fn with_scheduler(mut self, scheduler: Arc<Scheduler>) -> Self {
+    pub fn with_scheduler(mut self, scheduler: SchedulerRef) -> Self {
         self.scheduler = Some(scheduler);
         self
     }

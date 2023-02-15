@@ -227,13 +227,13 @@ struct TagRecordBatchStream {
 }
 
 impl Stream for TagRecordBatchStream {
-    type Item = ArrowResult<RecordBatch>;
+    type Item = Result<RecordBatch>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.columns
             .take()
             .map(|e| {
-                let batch = RecordBatch::try_new(self.schema.clone(), e);
+                let batch = RecordBatch::try_new(self.schema.clone(), e).map_err(Into::into);
                 Poll::Ready(Some(batch))
             })
             .unwrap_or_else(|| Poll::Ready(None))

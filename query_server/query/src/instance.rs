@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use datafusion::scheduler::Scheduler;
 use spi::{
     query::{dispatcher::QueryDispatcher, session::IsiphoSessionCtxFactory},
     server::dbms::DatabaseManagerSystem,

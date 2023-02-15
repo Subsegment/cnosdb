@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use datafusion::execution::FunctionRegistry;
@@ -43,12 +44,7 @@ impl<'a> FunctionMetadataManager for DFSessionContextFuncAdapter<'a> {
         self.ctx.udaf(name).context(CausedDataFusionSnafu)
     }
 
-    fn udfs(&self) -> Vec<Arc<ScalarUDF>> {
-        self.ctx
-            .state()
-            .scalar_functions
-            .values()
-            .cloned()
-            .collect()
+    fn udfs(&self) -> HashSet<String> {
+        self.ctx.udfs()
     }
 }

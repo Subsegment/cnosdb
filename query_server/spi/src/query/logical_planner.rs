@@ -1,13 +1,26 @@
 use crate::{catalog::MetadataError, service::protocol::QueryId};
-
+use std::sync::Arc;
 use super::{
     ast::{ExtStatement, ObjectType},
     session::IsiphoSessionCtx,
     AFFECTED_ROWS,
 };
-
+use lazy_static::lazy_static;
+use datafusion::arrow::array::ArrayRef;
+use datafusion::arrow::datatypes::DataType;
+use datafusion::logical_expr::type_coercion::aggregates::DATES;
+use datafusion::logical_expr::type_coercion::aggregates::NUMERICS;
+use datafusion::logical_expr::type_coercion::aggregates::STRINGS;
+use datafusion::logical_expr::type_coercion::aggregates::TIMES;
+use datafusion::logical_expr::type_coercion::aggregates::TIMESTAMPS;
+use datafusion::logical_expr::ReturnTypeFunction;
+use datafusion::logical_expr::ScalarUDF;
+use datafusion::logical_expr::Signature;
+use datafusion::logical_expr::Volatility;
+use datafusion::physical_plan::functions::make_scalar_function;
 use datafusion::{
     error::DataFusionError,
+    logical_expr::expr::AggregateFunction as AggregateFunctionExpr,
     logical_expr::{AggregateFunction, CreateExternalTable, LogicalPlan as DFPlan},
     prelude::{col, Expr},
 };
@@ -20,6 +33,25 @@ define_result!(LogicalPlannerError);
 pub const MISSING_COLUMN: &str = "Insert column name does not exist in target table: ";
 pub const DUPLICATE_COLUMN_NAME: &str = "Insert column name is specified more than once: ";
 pub const MISMATCHED_COLUMNS: &str = "Insert columns and Source columns not match";
+
+lazy_static! {
+    static ref TABLE_WRITE_UDF: Arc<ScalarUDF> = Arc::new(ScalarUDF::new(
+        "not_exec_only_prevent_col_prune",
+        &Signature::variadic(
+            STRINGS
+                .iter()
+                .chain(NUMERICS)
+                .chain(TIMESTAMPS)
+                .chain(DATES)
+                .chain(TIMES)
+                .cloned()
+                .collect::<Vec<_>>(),
+            Volatility::Immutable
+        ),
+        &(Arc::new(move |_: &[DataType]| Ok(Arc::new(DataType::UInt64))) as ReturnTypeFunction),
+        &make_scalar_function(|args: &[ArrayRef]| Ok(Arc::clone(&args[0]))),
+    ));
+}
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
@@ -195,25 +227,22 @@ pub trait LogicalPlanner {
     ) -> Result<Plan>;
 }
 
-/// TODO Additional output information
-pub fn affected_row_expr(arg: Expr) -> Expr {
-    // col(AFFECTED_ROWS.0)
-    Expr::AggregateFunction {
-        fun: AggregateFunction::Count,
-        args: vec![arg],
-        distinct: false,
-        filter: None,
+/// Additional output information
+pub fn affected_row_expr(args: Vec<Expr>) -> Expr {
+    Expr::ScalarUDF {
+        fun: TABLE_WRITE_UDF.clone(),
+        args,
     }
-    .alias(AFFECTED_ROWS.0)
+        .alias(AFFECTED_ROWS.0)
 }
 
 pub fn merge_affected_row_expr() -> Expr {
     // lit(ScalarValue::Null).alias("COUNT")
-    Expr::AggregateFunction {
+    Expr::AggregateFunction(AggregateFunctionExpr {
         fun: AggregateFunction::Sum,
         args: vec![col(AFFECTED_ROWS.0)],
         distinct: false,
         filter: None,
-    }
-    .alias(AFFECTED_ROWS.0)
+    })
+        .alias(AFFECTED_ROWS.0)
 }

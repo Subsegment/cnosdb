@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use datafusion::scheduler::Scheduler;
 use futures::stream::AbortHandle;
 use futures::TryStreamExt;
 use parking_lot::Mutex;
@@ -16,13 +15,14 @@ use spi::query::{
 };
 
 use spi::query::{QueryError, Result};
+use spi::query::scheduler::SchedulerRef;
 use trace::debug;
 
 pub struct SqlQueryExecution {
     query_state_machine: QueryStateMachineRef,
     plan: QueryPlan,
     optimizer: Arc<dyn Optimizer + Send + Sync>,
-    scheduler: Arc<Scheduler>,
+    scheduler: SchedulerRef,
 
     abort_handle: Mutex<Option<AbortHandle>>,
 }
@@ -32,7 +32,7 @@ impl SqlQueryExecution {
         query_state_machine: QueryStateMachineRef,
         plan: QueryPlan,
         optimizer: Arc<dyn Optimizer + Send + Sync>,
-        scheduler: Arc<Scheduler>,
+        scheduler: SchedulerRef,
     ) -> Self {
         Self {
             query_state_machine,
