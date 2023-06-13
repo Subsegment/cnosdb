@@ -1,5 +1,5 @@
 pub(crate) mod async_file;
-pub(crate) mod cursor;
+pub mod cursor;
 mod os;
 
 use std::io;

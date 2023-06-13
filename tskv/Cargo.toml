@@ -79,3 +79,7 @@ tempfile = { workspace = true }
 [[bench]]
 harness = false
 name = "kvcore_bench"
+
+[[bench]]
+harness = false
+name = "file_system"
