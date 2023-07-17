@@ -240,7 +240,7 @@ pub fn f64_gorilla_encode(
         length += 1;
     }
     dst.truncate(length);
-    dst.insert(0, Encoding::Gorilla as u8);
+    dst.insert(0, Encoding::Gorilla.id());
     Ok(())
 }
 
@@ -253,7 +253,7 @@ pub fn f64_q_compress_encode(
         return Ok(());
     }
 
-    dst.push(Encoding::Quantile as u8);
+    dst.push(Encoding::Quantile.id());
 
     dst.append(&mut auto_compress(src, DEFAULT_COMPRESSION_LEVEL));
     Ok(())
@@ -269,11 +269,69 @@ pub fn f64_without_compress_encode(
         return Ok(());
     }
 
-    dst.push(Encoding::Null as u8);
+    dst.push(Encoding::Null.id());
 
     for i in src.iter() {
         dst.extend_from_slice((*i).to_be_bytes().as_slice());
     }
+    Ok(())
+}
+
+pub fn f64_sdt_encode(
+    src: &[f64],
+    dst: &mut Vec<u8>,
+    deviation: f64,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    dst.clear(); // reset buffer.
+
+    if src.is_empty() {
+        return Ok(());
+    }
+    let mut prev_upper_slope = 0.0;
+    let mut prev_lower_slope = 0.0;
+    let mut home = 0; // store the index of the number which opens the door
+    let mut first = src[0]; // the number which opens the door
+    dst.extend_from_slice(&first.to_be_bytes()); //add the first one
+
+    for i in 1..src.len() {
+        let value = src[i];
+        let check = (i - home) as u32;
+        if check == 1 {
+            prev_upper_slope = value + deviation - first;
+            prev_lower_slope = value - deviation - first;
+        }
+
+        let offset = (i - home) as f64;
+
+        let slope = value / offset;
+
+        if slope <= prev_upper_slope && slope >= prev_lower_slope {
+            let upper_slope = (value + deviation - first) / offset;
+            let lower_slope = (value - deviation - first) / offset;
+            if upper_slope < prev_upper_slope {
+                prev_upper_slope = upper_slope;
+            }
+            if lower_slope > prev_lower_slope {
+                prev_lower_slope = lower_slope;
+            }
+            continue;
+        }
+
+        home = i - 1;
+
+        first = src[home];
+        let prev_value = first.to_bits();
+        dst.extend_from_slice(&prev_value.to_be_bytes());
+        let home_u16 = home as u16;
+        dst.extend_from_slice(&home_u16.to_be_bytes());
+        prev_upper_slope = value + deviation - first;
+        prev_lower_slope = value - deviation - first;
+    }
+
+    first = src[src.len() - 1];
+    dst.extend_from_slice(&first.to_be_bytes());
+    let len = (src.len() - 1) as u16;
+    dst.extend_from_slice(&len.to_be_bytes());
     Ok(())
 }
 
@@ -398,6 +456,89 @@ pub fn f64_without_compress_decode(
     for i in iter {
         dst.push(decode_be_f64(i))
     }
+    Ok(())
+}
+
+pub fn f64_sdt_decode(src: &[u8], dst: &mut Vec<f64>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if src.len() < 8 {
+        return Ok(());
+    }
+
+    let mut i = 0; //
+    let mut buf: [u8; 8] = [0; 8];
+    let mut interval: [u8; 2] = [0; 2];
+    let val_first: u64;
+    let mut val: u64;
+    let mut home_first: u16;
+    let mut home: u16;
+    let mut val_first_f64: f64;
+    let mut val_f64: f64;
+    let mut differ: f64;
+    let mut offset: u16;
+    let mut slope: f64;
+    let mut dec: f64;
+    //incase the src is short
+    if (src.len() - i) <= 10 {
+        buf.copy_from_slice(&src[i..i + 8]);
+        val_first = u64::from_be_bytes(buf); //as f64
+        val_first_f64 = f64::from_bits(val_first);
+        dst.push(val_first_f64);
+        return Ok(());
+    }
+    //the first one
+
+    buf.copy_from_slice(&src[i..i + 8]);
+    val_first = u64::from_be_bytes(buf);
+    val_first_f64 = f64::from_bits(val_first);
+    i += 8;
+    home_first = 0;
+    loop {
+        //the last one
+        if src.len() - i <= 10 {
+            dst.push(val_first_f64);
+            buf.copy_from_slice(&src[i..i + 8]);
+            interval.copy_from_slice(&src[i + 8..i + 10]);
+            val = u64::from_be_bytes(buf);
+            val_f64 = f64::from_bits(val);
+
+            home = u16::from_be_bytes(interval);
+            offset = home - home_first + 1;
+            if offset > 2 {
+                dec = val_first_f64;
+                differ = val_f64 - val_first_f64;
+                for _ in 0..(offset - 2) {
+                    slope = differ / offset as f64;
+                    dec += slope;
+                    dst.push(dec);
+                }
+            }
+            dst.push(val_f64);
+            break;
+        }
+        dst.push(val_first_f64);
+
+        buf.copy_from_slice(&src[i..i + 8]);
+        val = u64::from_be_bytes(buf);
+        val_f64 = f64::from_bits(val);
+
+        interval.copy_from_slice(&src[i + 8..i + 10]);
+        home = u16::from_be_bytes(interval);
+        offset = home - home_first + 1;
+        differ = val_f64 - val_first_f64;
+        dec = val_first_f64;
+        if offset > 2 {
+            slope = differ / offset as f64;
+            for _ in 0..(offset - 2) {
+                dec += slope; //as u64  6.3 -> 6
+                dst.push(dec);
+            }
+        }
+
+        val_first_f64 = val_f64;
+        home_first = home;
+        i += 10;
+    }
+
     Ok(())
 }
 
