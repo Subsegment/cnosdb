@@ -80,7 +80,6 @@ impl TSM2MetaData {
 pub struct TSM2Reader {
     file_location: PathBuf,
     file_id: u64,
-    reader: Arc<AsyncFile>,
     tsm_meta: Arc<TSM2MetaData>,
     tombstone: Option<Arc<RwLock<TsmTombstone>>>,
 }
@@ -89,11 +88,11 @@ impl TSM2Reader {
     pub async fn open(tsm_path: impl AsRef<Path>) -> Result<Self> {
         let path = tsm_path.as_ref().to_path_buf();
         let file_id = file_utils::get_tsm_file_id_by_path(&path)?;
-        let reader = Arc::new(file_manager::open_file(&path).await?);
-        let footer = Arc::new(read_footer(reader.clone()).await?);
-        let chunk_group_meta = Arc::new(read_chunk_group_meta(reader.clone(), &footer).await?);
-        let chunk_group = read_chunk_groups(reader.clone(), &chunk_group_meta).await?;
-        let chunk = read_chunk(reader.clone(), &chunk_group).await?;
+        let reader =file_manager::open_file(&path).await?;
+        let footer = Arc::new(read_footer(&reader).await?);
+        let chunk_group_meta = Arc::new(read_chunk_group_meta(&reader, &footer).await?);
+        let chunk_group = read_chunk_groups(&reader, &chunk_group_meta).await?;
+        let chunk = read_chunk(&reader, &chunk_group).await?;
         let tsm_meta = Arc::new(TSM2MetaData::new(
             footer,
             chunk_group_meta,
@@ -104,14 +103,9 @@ impl TSM2Reader {
         Ok(Self {
             file_location: path,
             file_id,
-            reader,
             tsm_meta,
             tombstone: None,
         })
-    }
-
-    pub fn reader(&self) -> Arc<AsyncFile> {
-        self.reader.clone()
     }
 
     pub fn file_id(&self) -> u64 {
@@ -200,7 +194,8 @@ impl TSM2Reader {
     // }
 
     pub async fn read_page(&self, page_spec: &PageWriteSpec) -> Result<Page> {
-        read_page(self.reader.clone(), page_spec).await
+        let reader = file_manager::open_file(&self.file_location).await?;
+        read_page(&reader, page_spec).await
     }
 
     pub async fn read_series_pages(
@@ -209,7 +204,7 @@ impl TSM2Reader {
         column_group_id: ColumnGroupID,
     ) -> Result<Vec<Page>> {
         let chunk = self.chunk();
-        let reader = self.reader.clone();
+        let reader = file_manager::open_file(&self.file_location).await?;
         if let Some(chunk) = chunk.get(&series_id) {
             for (id, column_group) in chunk.column_group() {
                 if *id != column_group_id {
@@ -217,7 +212,7 @@ impl TSM2Reader {
                 }
                 let mut res_page = Vec::with_capacity(column_group.pages().len());
                 for page in column_group.pages() {
-                    let page = read_page(reader.clone(), page).await?;
+                    let page = read_page(&reader, page).await?;
                     res_page.push(page);
                 }
                 return Ok(res_page);
@@ -232,13 +227,14 @@ impl TSM2Reader {
         column_group_id: ColumnGroupID,
     ) -> Result<Vec<u8>> {
         let chunk = self.chunk();
+        let reader = file_manager::open_file(&self.file_location).await?;
         if let Some(chunk) = chunk.get(&series_id) {
             for (id, column_group) in chunk.column_group() {
                 if *id != column_group_id {
                     continue;
                 }
                 let mut res_column_group = vec![0u8; column_group.size() as usize];
-                self.reader
+                reader
                     .read_at(column_group.pages_offset(), &mut res_column_group)
                     .await?;
                 return Ok(res_column_group);
@@ -316,7 +312,7 @@ impl Debug for TSM2Reader {
     }
 }
 
-pub async fn read_footer(reader: Arc<AsyncFile>) -> Result<Footer> {
+pub async fn read_footer(reader: &AsyncFile) -> Result<Footer> {
     let pos = reader.len() - (FOOTER_SIZE as u64);
     let mut buffer = vec![0u8; FOOTER_SIZE];
     reader.read_at(pos, &mut buffer).await?;
@@ -324,7 +320,7 @@ pub async fn read_footer(reader: Arc<AsyncFile>) -> Result<Footer> {
 }
 
 pub async fn read_chunk_group_meta(
-    reader: Arc<AsyncFile>,
+    reader: &AsyncFile,
     footer: &Footer,
 ) -> Result<ChunkGroupMeta> {
     let pos = footer.table.chunk_group_offset();
@@ -335,7 +331,7 @@ pub async fn read_chunk_group_meta(
 }
 
 pub async fn read_chunk_groups(
-    reader: Arc<AsyncFile>,
+    reader: &AsyncFile,
     chunk_group_meta: &ChunkGroupMeta,
 ) -> Result<BTreeMap<String, Arc<ChunkGroup>>> {
     let mut specs = BTreeMap::new();
@@ -350,7 +346,7 @@ pub async fn read_chunk_groups(
 }
 
 pub async fn read_chunk(
-    reader: Arc<AsyncFile>,
+    reader: &AsyncFile,
     chunk_group: &BTreeMap<String, Arc<ChunkGroup>>,
 ) -> Result<BTreeMap<SeriesId, Arc<Chunk>>> {
     let mut chunks = BTreeMap::new();
@@ -366,7 +362,7 @@ pub async fn read_chunk(
     Ok(chunks)
 }
 
-async fn read_page(reader: Arc<AsyncFile>, page_spec: &PageWriteSpec) -> Result<Page> {
+async fn read_page(reader: &AsyncFile, page_spec: &PageWriteSpec) -> Result<Page> {
     let pos = page_spec.offset();
     let mut buffer = vec![0u8; page_spec.size()];
     reader.read_at(pos, &mut buffer).await?;
