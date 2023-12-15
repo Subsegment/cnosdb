@@ -214,7 +214,7 @@ pub fn reassign_predicate_columns(
                 part_schema: file_schema,
                 has_col_not_in_file: false,
             };
-            expr.visit(&mut vistor)?;
+            new_expr.visit(&mut vistor)?;
             if vistor.has_col_not_in_file {
                 return Ok(None);
             }
