@@ -88,6 +88,7 @@ impl FlushTask {
             return Ok(());
         }
 
+        error!("4444max level ts : {}", max_level_ts);
         let mut column_file_metas = self
             .flush_mem_caches(
                 flushing_mems_data,
@@ -95,6 +96,10 @@ impl FlushTask {
                 tsm::MAX_BLOCK_VALUES as usize,
             )
             .await?;
+        column_file_metas.iter().for_each(|(m, _)| {
+            error!("Flush: File: {} flushed, min ts: {}, max ts: {}, level : {}, max level ts {}", m.file_id, m.min_ts, m.max_ts, m.level, max_level_ts);
+        });
+        error!("5555max level ts : {}", max_level_ts);
         let mut max_level_ts_tmp = max_level_ts;
         let mut edit = VersionEdit::new(self.ts_family_id);
         for (cm, _) in column_file_metas.iter_mut() {
@@ -195,6 +200,7 @@ pub async fn run_flush_memtable_job(
         req.mems.len()
     );
 
+
     let mut version_edits: Vec<VersionEdit> = vec![];
     let mut file_metas: HashMap<ColumnFileId, Arc<BloomFilter>> = HashMap::new();
 
@@ -222,9 +228,11 @@ pub async fn run_flush_memtable_job(
             path_delta,
         );
 
-        flush_task
+        let res = flush_task
             .run(req.max_ts, &mut version_edits, &mut file_metas)
-            .await?;
+            .await;
+
+        error!("flush res : {:?}, max level ts: {}", res, req.max_ts);
 
         tsf.read().await.update_last_modified().await;
 

@@ -3,6 +3,7 @@ use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
+use std::thread;
 use std::time::Duration;
 
 use cache::{AsyncCache, ShardedAsyncCache};
@@ -834,6 +835,8 @@ impl TseriesFamily {
         let mut version = self.version.as_ref().clone();
         version.max_level_ts = max_cache_ts.max(max_level_ts);
         self.new_version(version, None);
+        let ddddd = self.version.max_level_ts;
+        error!("tsf : {}, update max level ts from {} to {}， thread id : {:?}", self.tf_id, max_level_ts, ddddd, thread::current().id());
 
         if filtered_caches.is_empty() {
             return None;
