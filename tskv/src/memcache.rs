@@ -15,6 +15,7 @@ use models::{ColumnId, FieldId, RwLockRef, SchemaId, SeriesId, Timestamp, ValueT
 use parking_lot::RwLock;
 use protos::models as fb_models;
 use protos::models::FieldType;
+use trace::error;
 use utils::bitset::ImmutBitSet;
 
 use crate::error::Result;
@@ -119,6 +120,17 @@ pub struct RowData {
     pub fields: Vec<Option<FieldVal>>,
 }
 
+// impl Drop for RowData {
+//     fn drop(&mut self) {
+//         error!(
+//             "drop row data: ts: {}, self address: {:?}, fields address: {:?}",
+//             self.ts,
+//             std::ptr::addr_of!(self),
+//             std::ptr::addr_of!(self.fields),
+//         )
+//     }
+// }
+
 impl RowData {
     pub fn point_to_row_data(
         p: fb_models::Point,
@@ -214,11 +226,27 @@ pub struct RowGroup {
     pub size: usize,
 }
 
+// impl Drop for RowGroup {
+//     fn drop(&mut self) {
+//         error!(
+//             "drop row group: schema: {}, address: {:?}",
+//             self.schema.name,
+//             std::ptr::addr_of!(self)
+//         )
+//     }
+// }
+
 #[derive(Debug)]
 pub struct SeriesData {
     pub series_id: SeriesId,
     pub range: TimeRange,
     pub groups: Vec<RowGroup>,
+}
+
+impl Drop for  SeriesData {
+    fn drop(&mut self) {
+        error!("drop series data: series_id: {}, address: {:?}", self.series_id, std::ptr::addr_of!(self))
+    }
 }
 
 impl SeriesData {
@@ -240,7 +268,7 @@ impl SeriesData {
             if item.schema.schema_id == group.schema.schema_id {
                 item.range.merge(&group.range);
                 item.rows.append(&mut group.rows);
-                item.schema = group.schema;
+                item.schema = group.schema.clone();
                 return;
             }
         }
@@ -364,6 +392,17 @@ pub struct MemCache {
     partions: Vec<RwLock<HashMap<u32, RwLockRef<SeriesData>>>>,
 
     max_ts: AtomicI64,
+}
+
+impl Drop for MemCache {
+    fn drop(&mut self) {
+        error!(
+            "drop memecache: tf_id: {}, seq_no: {}, address: {:?}",
+            self.tf_id,
+            self.seq_no.load(Ordering::Relaxed),
+            std::ptr::addr_of!(self)
+        )
+    }
 }
 
 impl MemCache {
