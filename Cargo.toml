@@ -74,7 +74,6 @@ lazy_static = "1.4"
 libc = { version = "0.2", default-features = false }
 lru = "0.11.1"
 md-5 = "0.10"
-minivec = "0.4.0"
 mio = "0.8"
 moka = "0.11.2"
 nom = "7.1.1"
@@ -170,8 +169,8 @@ panic = 'unwind'
 
 [profile.release]
 codegen-units = 1
-debug = false
-debug-assertions = false
+debug = true
+debug-assertions = true
 incremental = false
 lto = "thin"
 opt-level = 3

@@ -2,7 +2,6 @@ use std::cmp::min;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
-use minivec::MiniVec;
 use models::predicate::domain::{TimeRange, TimeRanges};
 use models::{Timestamp, ValueType};
 use trace::error;
@@ -33,7 +32,7 @@ pub enum DataBlock {
     },
     Str {
         ts: Vec<i64>,
-        val: Vec<MiniVec<u8>>,
+        val: Vec<Vec<u8>>,
         enc: DataBlockEncoding,
     },
     F64 {
@@ -180,7 +179,7 @@ impl DataBlock {
             DataType::StrRef(ts_in, val_in) => {
                 if let Self::Str { ts, val, .. } = self {
                     ts.push(ts_in);
-                    val.push(MiniVec::from(val_in.as_slice()))
+                    val.push(Vec::from(val_in.as_slice()))
                 }
             }
         }
@@ -831,7 +830,7 @@ fn exclude_fast<T: Sized + Copy>(v: &mut Vec<T>, min_idx: usize, max_idx: usize)
     }
 }
 
-fn exclude_slow(v: &mut Vec<MiniVec<u8>>, min_idx: usize, max_idx: usize) {
+fn exclude_slow(v: &mut Vec<Vec<u8>>, min_idx: usize, max_idx: usize) {
     if min_idx == max_idx {
         v.remove(min_idx);
     }
@@ -1009,7 +1008,6 @@ impl EncodedDataBlock {
 
 #[cfg(test)]
 pub mod test {
-    use minivec::mini_vec;
     use models::predicate::domain::{TimeRange, TimeRanges};
     use models::ValueType;
 

@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use memory_pool::{MemoryConsumer, MemoryPoolRef, MemoryReservation};
-use minivec::{mini_vec, MiniVec};
 use models::predicate::domain::TimeRange;
 use models::schema::{
     timestamp_convert, Precision, TableColumn, TskvTableSchema, TskvTableSchemaRef,
@@ -27,7 +26,7 @@ pub enum FieldVal {
     Integer(i64),
     Unsigned(u64),
     Boolean(bool),
-    Bytes(MiniVec<u8>),
+    Bytes(Vec<u8>),
 }
 
 impl FieldVal {
@@ -51,7 +50,7 @@ impl FieldVal {
         }
     }
 
-    pub fn new(val: MiniVec<u8>, vtype: ValueType) -> FieldVal {
+    pub fn new(val: Vec<u8>, vtype: ValueType) -> FieldVal {
         match vtype {
             ValueType::Unsigned => {
                 let val = byte_utils::decode_be_u64(&val);
@@ -153,7 +152,7 @@ impl RowData {
                     .zip(field_type)
                     .enumerate()
                 {
-                    let val = MiniVec::from(
+                    let val = Vec::from(
                         field
                             .value()
                             .ok_or(CommonError {
@@ -574,7 +573,7 @@ impl MemCache {
 pub enum DataType {
     U64(i64, u64),
     I64(i64, i64),
-    Str(i64, MiniVec<u8>),
+    Str(i64, Vec<u8>),
     F64(i64, f64),
     Bool(i64, bool),
     /// Notice.
@@ -611,7 +610,7 @@ impl DataType {
             ValueType::Integer => DataType::I64(ts, 0),
             ValueType::Float => DataType::F64(ts, 0.0),
             ValueType::Boolean => DataType::Bool(ts, false),
-            ValueType::String => DataType::Str(ts, mini_vec![]),
+            ValueType::String => DataType::Str(ts, vec![]),
             _ => todo!(),
         }
     }

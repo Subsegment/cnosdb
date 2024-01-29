@@ -7,7 +7,6 @@ use bzip2::Compression as CompressionBzip;
 use flate2::write::{GzDecoder, GzEncoder, ZlibDecoder, ZlibEncoder};
 use flate2::Compression as CompressionFlate;
 use integer_encoding::VarInt;
-use minivec::MiniVec;
 
 use crate::byte_utils::decode_be_u64;
 use crate::tsm::codec::Encoding;
@@ -205,7 +204,7 @@ pub fn str_without_compress_encode(
 /// UTF-8.
 pub fn str_snappy_decode(
     src: &[u8],
-    dst: &mut Vec<MiniVec<u8>>,
+    dst: &mut Vec<Vec<u8>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if src.is_empty() {
         return Ok(());
@@ -239,7 +238,7 @@ pub fn str_snappy_decode(
             return Err("short buffer".into());
         }
 
-        dst.push(MiniVec::from(&decoded_bytes[lower..upper]));
+        dst.push(Vec::from(&decoded_bytes[lower..upper]));
 
         // The length of this string plus the length of the variable byte encoded length
         i += length + num_bytes_read;
@@ -250,7 +249,7 @@ pub fn str_snappy_decode(
 
 fn split_stream(
     data: &[u8],
-    dst: &mut Vec<MiniVec<u8>>,
+    dst: &mut Vec<Vec<u8>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let len = data.len();
     let mut i = 0;
@@ -259,7 +258,7 @@ fn split_stream(
         let str_len = decode_be_u64(&data[i..i + 8]);
         i += 8;
         let str_len: usize = str_len.try_into()?;
-        dst.push(MiniVec::from(&data[i..i + str_len]));
+        dst.push(Vec::from(&data[i..i + str_len]));
         i += str_len;
     }
     Ok(())
@@ -267,7 +266,7 @@ fn split_stream(
 
 pub fn str_zstd_decode(
     src: &[u8],
-    dst: &mut Vec<MiniVec<u8>>,
+    dst: &mut Vec<Vec<u8>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if src.is_empty() {
         return Ok(());
@@ -284,7 +283,7 @@ pub fn str_zstd_decode(
 
 pub fn str_bzip_decode(
     src: &[u8],
-    dst: &mut Vec<MiniVec<u8>>,
+    dst: &mut Vec<Vec<u8>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if src.is_empty() {
         return Ok(());
@@ -303,7 +302,7 @@ pub fn str_bzip_decode(
 
 pub fn str_gzip_decode(
     src: &[u8],
-    dst: &mut Vec<MiniVec<u8>>,
+    dst: &mut Vec<Vec<u8>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if src.is_empty() {
         return Ok(());
@@ -322,7 +321,7 @@ pub fn str_gzip_decode(
 
 pub fn str_zlib_decode(
     src: &[u8],
-    dst: &mut Vec<MiniVec<u8>>,
+    dst: &mut Vec<Vec<u8>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if src.is_empty() {
         return Ok(());
@@ -341,7 +340,7 @@ pub fn str_zlib_decode(
 
 pub fn str_without_compress_decode(
     src: &[u8],
-    dst: &mut Vec<MiniVec<u8>>,
+    dst: &mut Vec<Vec<u8>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if src.is_empty() {
         return Ok(());
@@ -518,10 +517,10 @@ mod tests {
         let mut got = vec![];
 
         let mut data = vec![];
-        let mut data_exp: Vec<MiniVec<u8>> = vec![];
+        let mut data_exp: Vec<Vec<u8>> = vec![];
         for i in ALLSTR {
             data.push(i.as_bytes());
-            data_exp.push(MiniVec::from(i.as_bytes()));
+            data_exp.push(Vec::from(i.as_bytes()));
         }
 
         str_snappy_encode(&data, &mut dst).unwrap();

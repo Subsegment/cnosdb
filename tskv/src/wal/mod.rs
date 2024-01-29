@@ -43,7 +43,6 @@ use std::fmt::Display;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use minivec::MiniVec;
 use models::codec::Encoding;
 use models::meta_data::VnodeId;
 use models::schema::Precision;
@@ -472,7 +471,7 @@ impl WalManager {
 }
 
 pub struct WalDecoder {
-    buffer: Vec<MiniVec<u8>>,
+    buffer: Vec<Vec<u8>>,
     decoder: Box<dyn StringCodec + Send + Sync>,
 }
 
@@ -483,7 +482,7 @@ impl WalDecoder {
             decoder: get_str_codec(Encoding::Zstd),
         }
     }
-    pub fn decode(&mut self, data: &[u8]) -> Result<Option<MiniVec<u8>>> {
+    pub fn decode(&mut self, data: &[u8]) -> Result<Option<Vec<u8>>> {
         self.buffer.truncate(0);
         self.decoder
             .decode(data, &mut self.buffer)
@@ -499,7 +498,7 @@ mod test {
     use std::path::Path;
     use std::sync::Arc;
 
-    use minivec::MiniVec;
+    use Vec::Vec;
     use models::codec::Encoding;
     use models::schema::Precision;
     use models::Timestamp;
@@ -534,7 +533,7 @@ mod test {
         let mut fb_data: Vec<(Timestamp, FieldVal)> = Vec::with_capacity(num);
         for i in start_timestamp..start_timestamp + num as i64 {
             fa_data.push((i, FieldVal::Integer(100)));
-            fb_data.push((i, FieldVal::Bytes(MiniVec::from("b"))));
+            fb_data.push((i, FieldVal::Bytes(Vec::from("b"))));
         }
         let map = HashMap::from([("fa".to_string(), fa_data), ("fb".to_string(), fb_data)]);
 
