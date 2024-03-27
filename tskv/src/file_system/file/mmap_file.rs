@@ -1,8 +1,8 @@
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Result;
 use std::path::Path;
+use std::ptr;
 use std::sync::Arc;
-use std::{mem, ptr};
 
 use crate::file_system::file::raw_file::RawFile;
 use crate::file_system::file::{asyncify, ReadableFile, WritableFile};
@@ -38,7 +38,7 @@ impl WritableFile for MmapFile {
             unsafe {
                 let memory = std::slice::from_raw_parts_mut(mmap.as_mut_ptr(), size);
                 let dst = memory.as_mut_ptr().add(pos);
-                ptr::copy_nonoverlapping(mem::transmute(src), dst, len);
+                ptr::copy_nonoverlapping(src as *const u8, dst, len);
             }
             Ok(len)
         })
@@ -70,7 +70,7 @@ impl WritableFile for MmapFile {
 
 #[async_trait::async_trait]
 impl ReadableFile for MmapFile {
-    async fn read_at(&self, pos: u64, data: &mut [u8]) -> Result<usize> {
+    async fn read_at(&self, pos: usize, data: &mut [u8]) -> Result<usize> {
         let mmap = self.mmap.clone();
         let size = self.size;
         let len = data.len();
@@ -78,8 +78,8 @@ impl ReadableFile for MmapFile {
         let size = asyncify(move || {
             unsafe {
                 let memory = std::slice::from_raw_parts(mmap.as_ptr(), size);
-                let src = memory.as_ptr().add(pos as usize);
-                ptr::copy_nonoverlapping(src, mem::transmute(dst), len);
+                let src = memory.as_ptr().add(pos);
+                ptr::copy_nonoverlapping(src, dst as *mut u8, len);
             }
             Ok(len)
         })
