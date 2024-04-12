@@ -359,8 +359,6 @@ impl VnodeStorage {
             return Ok(self.snapshot.clone());
         }
 
-        self.flush().await?;
-
         let (snapshot_version, snapshot_ve) = {
             let mut _file_metas = HashMap::new();
             let ts_family_w = self.ts_family.write().await;

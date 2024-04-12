@@ -2,7 +2,7 @@
 node_id = 1001
 host = "localhost"
 cluster_name = 'cluster_xxx'
-store_metrics = true
+store_metrics = false
 
 [deployment]
 # mode = 'query_tskv'
@@ -28,7 +28,7 @@ stream_executor_cpu = 2
 # Directory for index: $path/index/$database/
 # Directory for tsm: $path/data/$database/tsm/
 # Directory for delta: $path/data/$database/delta/
-path = '/tmp/cnosdb/1001/db'
+path = '/data1/syk/tmp/cnosdb/1001/db'
 max_summary_size = "128M"            # 134217728
 base_file_size = "16M"               # 16777216
 flush_req_channel_cap = 16
@@ -43,7 +43,7 @@ copyinto_trigger_flush_size = "128M" # 134217728
 
 [wal]
 enabled = true
-path = '/tmp/cnosdb/1001/wal'
+path = '/data2/syk/tmp/cnosdb/1001/wal'
 wal_req_channel_cap = 64
 max_file_size = "1G"                 # 1073741824
 flush_trigger_total_file_size = "2G" # 2147483648
@@ -56,7 +56,7 @@ partition = 16          # default memcache partition number
 
 [log]
 level = 'info'
-path = '/tmp/cnosdb/1001/log'
+path = '/data1/syk/tmp/cnosdb/1001/log'
 
 [security]
 # [security.tls_config]

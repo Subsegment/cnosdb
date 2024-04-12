@@ -69,6 +69,7 @@ pub struct TsmWriter {
     // todo: table object id bloom filter
     // table_bloom_filter: BloomFilter,
     writer: FileCursor,
+    cursor_buf: Vec<u8>,
     options: WriteOptions,
     table_schemas: HashMap<String, TskvTableSchemaRef>,
 
@@ -109,6 +110,7 @@ impl TsmWriter {
             path,
             series_bloom_filter: BloomFilter::new(BLOOM_FILTER_BITS),
             writer,
+            cursor_buf: Default::default(),
             options: Default::default(),
             table_schemas: Default::default(),
             page_specs: Default::default(),
@@ -147,36 +149,29 @@ impl TsmWriter {
         self.state == State::Finished
     }
 
-    pub async fn write_header(&mut self) -> TskvResult<usize> {
-        let size = self
-            .writer
-            .write_vec(
-                [
-                    IoSlice::new(TSM_MAGIC.as_slice()),
-                    IoSlice::new(VERSION.as_slice()),
-                ]
-                .as_mut_slice(),
-            )
-            .await
-            .context(IOSnafu)?;
+    pub fn write_header(&mut self) -> TskvResult<usize> {
+        let start = self.cursor_buf.len();
+        self.cursor_buf.extend_from_slice(&[TSM_MAGIC.as_slice(), VERSION.as_slice()].concat());
         self.state = State::Started;
-        self.size += size as u64;
-        Ok(size)
+        self.size = self.cursor_buf.len() as u64;
+        Ok(self.cursor_buf.len() - start)
     }
 
     /// todo: write footer
-    pub async fn write_footer(&mut self) -> TskvResult<usize> {
+    pub fn write_footer(&mut self) -> TskvResult<usize> {
         let buf = self.footer.serialize()?;
-        let size = self.writer.write(&buf).await.context(IOSnafu)?;
-        self.size += size as u64;
-        Ok(size)
+        let start = self.cursor_buf.len();
+        self.cursor_buf.extend_from_slice(&buf);
+        self.size = self.cursor_buf.len() as u64;
+        Ok(self.cursor_buf.len() - start)
     }
 
-    pub async fn write_chunk_group(&mut self) -> TskvResult<()> {
+    pub fn write_chunk_group(&mut self) -> TskvResult<()> {
         for (table, group) in &self.chunk_specs {
-            let chunk_group_offset = self.writer.pos();
+            let chunk_group_offset = self.cursor_buf.len() as u64;
             let buf = group.serialize()?;
-            let chunk_group_size = self.writer.write(&buf).await? as u64;
+            self.cursor_buf.extend_from_slice(&buf);
+            let chunk_group_size = self.cursor_buf.len() as u64 - chunk_group_offset;
             self.size += chunk_group_size;
             let chunk_group_spec = ChunkGroupWriteSpec {
                 table_schema: self.table_schemas.get(table).unwrap().clone(),
@@ -191,10 +186,11 @@ impl TsmWriter {
         Ok(())
     }
 
-    pub async fn write_chunk_group_specs(&mut self, series: SeriesMeta) -> TskvResult<()> {
-        let chunk_group_specs_offset = self.writer.pos();
+    pub fn write_chunk_group_specs(&mut self, series: SeriesMeta) -> TskvResult<()> {
+        let chunk_group_specs_offset = self.cursor_buf.len() as u64;
         let buf = self.chunk_group_specs.serialize()?;
-        let chunk_group_specs_size = self.writer.write(&buf).await? as u64;
+        self.cursor_buf.extend_from_slice(&buf);
+        let chunk_group_specs_size = self.cursor_buf.len() as u64 - chunk_group_specs_offset;
         self.size += chunk_group_specs_size;
         let time_range = self.chunk_group_specs.time_range();
         let footer = Footer {
@@ -207,13 +203,14 @@ impl TsmWriter {
         Ok(())
     }
 
-    pub async fn write_chunk(&mut self) -> TskvResult<SeriesMeta> {
+    pub fn write_chunk(&mut self) -> TskvResult<SeriesMeta> {
         let chunk_offset = self.writer.pos();
         for (table, group) in &self.page_specs {
             for (series, chunk) in group {
-                let chunk_offset = self.writer.pos();
+                let chunk_offset = self.cursor_buf.len() as u64;
                 let buf = chunk.serialize()?;
-                let chunk_size = self.writer.write(&buf).await? as u64;
+                self.cursor_buf.extend_from_slice(&buf);
+                let chunk_size = self.cursor_buf.len() as u64 - chunk_offset;
                 self.size += chunk_size;
                 let time_range = chunk.time_range();
                 self.min_ts = min(self.min_ts, time_range.min_ts);
@@ -241,11 +238,11 @@ impl TsmWriter {
         );
         Ok(series)
     }
-    pub async fn write_data(&mut self, groups: TsmWriteData) -> TskvResult<()> {
+    pub fn write_data(&mut self, groups: TsmWriteData) -> TskvResult<()> {
         // write page data
         for (_, group) in groups {
             for (series, (series_buf, datablock)) in group {
-                self.write_datablock(series, series_buf, datablock).await?;
+                self.write_datablock(series, series_buf, datablock)?;
             }
         }
         Ok(())
@@ -267,7 +264,7 @@ impl TsmWriter {
         ColumnGroup::new(chunk.next_column_group_id())
     }
 
-    pub async fn write_datablock(
+    pub fn write_datablock(
         &mut self,
         series_id: SeriesId,
         series_key: SeriesKey,
@@ -283,12 +280,11 @@ impl TsmWriter {
         let schema = datablock.schema();
         let pages = datablock.block_to_page()?;
 
-        self.write_pages(schema, series_id, series_key, pages, time_range)
-            .await?;
+        self.write_pages(schema, series_id, series_key, pages, time_range)?;
         Ok(())
     }
 
-    pub async fn write_pages(
+    pub fn write_pages(
         &mut self,
         schema: TskvTableSchemaRef,
         series_id: SeriesId,
@@ -297,15 +293,16 @@ impl TsmWriter {
         time_range: TimeRange,
     ) -> TskvResult<()> {
         if self.state == State::Initialised {
-            self.write_header().await?;
+            self.write_header()?;
         }
 
         let mut column_group = self.create_column_group(schema.clone(), series_id, &series_key);
 
         let table = schema.name.clone();
         for page in pages {
-            let offset = self.writer.pos();
-            let size = self.writer.write(&page.bytes).await? as u64;
+            let offset = self.cursor_buf.len() as u64;
+            self.cursor_buf.extend_from_slice(&page.bytes);
+            let size = self.cursor_buf.len() as u64 - offset;
             self.size += size;
             let spec = PageWriteSpec {
                 offset,
@@ -325,7 +322,7 @@ impl TsmWriter {
         Ok(())
     }
 
-    pub async fn write_raw(
+    pub fn write_raw(
         &mut self,
         schema: TskvTableSchemaRef,
         meta: Arc<Chunk>,
@@ -333,14 +330,15 @@ impl TsmWriter {
         raw: Vec<u8>,
     ) -> TskvResult<()> {
         if self.state == State::Initialised {
-            self.write_header().await?;
+            self.write_header()?;
         }
 
         let mut new_column_group =
             self.create_column_group(schema.clone(), meta.series_id(), meta.series_key());
 
-        let mut offset = self.writer.pos();
-        let size = self.writer.write(&raw).await? as u64;
+        let mut offset = self.cursor_buf.len() as u64;
+        self.cursor_buf.extend_from_slice(&raw);
+        let size = self.cursor_buf.len() as u64 - offset;
         self.size += size;
 
         let table = schema.name.to_string();
@@ -384,8 +382,7 @@ impl TsmWriter {
                 series_key,
                 ..
             } => {
-                self.write_datablock(series_id, series_key, data_block)
-                    .await?
+                self.write_datablock(series_id, series_key, data_block)?
             }
             CompactingBlock::Encoded {
                 table_schema,
@@ -395,8 +392,7 @@ impl TsmWriter {
                 data_block,
                 ..
             } => {
-                self.write_pages(table_schema, series_id, series_key, data_block, time_range)
-                    .await?
+                self.write_pages(table_schema, series_id, series_key, data_block, time_range)?
             }
             CompactingBlock::Raw {
                 table_schema,
@@ -405,8 +401,7 @@ impl TsmWriter {
                 raw,
                 ..
             } => {
-                self.write_raw(table_schema, meta, column_group_id, raw)
-                    .await?
+                self.write_raw(table_schema, meta, column_group_id, raw)?
             }
         }
 
@@ -418,10 +413,12 @@ impl TsmWriter {
     }
 
     pub async fn finish(&mut self) -> TskvResult<()> {
-        let series_meta = self.write_chunk().await?;
-        self.write_chunk_group().await?;
-        self.write_chunk_group_specs(series_meta).await?;
-        self.write_footer().await?;
+        let series_meta = self.write_chunk()?;
+        self.write_chunk_group()?;
+        self.write_chunk_group_specs(series_meta)?;
+        self.write_footer()?;
+        self.writer.write(&self.cursor_buf).await?;
+        self.cursor_buf.clear();
         self.writer.file_ref().sync_data().await?;
         self.state = State::Finished;
         Ok(())

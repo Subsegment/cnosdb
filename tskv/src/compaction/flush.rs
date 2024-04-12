@@ -79,10 +79,10 @@ impl FlushTask {
                 );
             }
             if let Some(tsm_writer) = tsm_writer.as_mut() {
-                tsm_writer.write_data(group).await?;
+                tsm_writer.write_data(group)?;
             }
             if let Some(delta_writer) = delta_writer.as_mut() {
-                delta_writer.write_data(delta_group).await?;
+                delta_writer.write_data(delta_group)?;
             }
         }
 
