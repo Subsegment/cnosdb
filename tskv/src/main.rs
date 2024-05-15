@@ -198,33 +198,31 @@ impl Simulator {
     fn gen(&mut self, id: u64) {
         let mut rng = rand::thread_rng();
         self.update_timestamp();
-        self.size = rng.gen_range(1..100);
-        self.resource = format!("WXXX11DV-{}", rng.gen_range(1..10));
-        self.mes_ip = format!("192.168.{}.{}", rng.gen_range(1..10), rng.gen_range(1..10));
-        self.project_name = format!("Project_{}", rng.gen_range(1..5));
+        self.size = id as i32;
+        self.resource = format!("WXXX11DV-{}", id);
+        self.mes_ip = format!("192.168.{}.{}", id, id);
+        self.project_name = format!("Project_{}", id);
         // 400 column key  400 * 3 1200  column value
         let mut col_set = HashMap::new();
-        for i in 0..self.params_num {
+        let epoch = self.params_num + rng.gen_range(0..10);
+        for i in 0..epoch {
             let param_key = format!(
-                "{}-{}-{}-{}",
+                "{}-{}-{}",
                 self.param_key_prefix,
-                id,
                 i + 1,
                 "Lower".to_string()
             );
             col_set.insert(param_key, self.param_val_bounds.0);
             let param_key = format!(
-                "{}-{}-{}-{}",
+                "{}-{}-{}",
                 self.param_key_prefix,
-                id,
                 i + 1,
                 "Upper".to_string()
             );
             col_set.insert(param_key, self.param_val_bounds.1);
             let param_key = format!(
-                "{}-{}-{}-{}",
+                "{}-{}-{}",
                 self.param_key_prefix,
-                id,
                 i + 1,
                 "Setting".to_string()
             );
