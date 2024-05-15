@@ -22,7 +22,7 @@ trace = { path = "../common/trace" }
 utils = { path = "../common/utils" }
 http_protocol = { path = "../common/http_protocol" }
 
-rdkafka = {versin= 0.36}
+rdkafka = "0.36.2"
 clap = { workspace = true, features = ["derive", "env"] }
 reqwest = { workspace = true, features = ["rustls-tls", "json"], default-features = false }
 arrow = { workspace = true, features = ["test_utils"] }

@@ -145,7 +145,6 @@ use std::time::Duration;
 use chrono::{TimeZone, Utc};
 use clap::{Args, Parser, Subcommand};
 use rand::Rng;
-use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::ClientConfig;
 use reqwest::ClientBuilder;
@@ -203,7 +202,7 @@ impl Simulator {
         self.resource = format!("WXXX11DV-{}", rng.gen_range(1..10));
         self.mes_ip = format!("192.168.{}.{}", rng.gen_range(1..10), rng.gen_range(1..10));
         self.project_name = format!("Project_{}", rng.gen_range(1..5));
-        /// 400 column key  400 * 3 1200  column value
+        // 400 column key  400 * 3 1200  column value
         let mut col_set = HashMap::new();
         for i in 0..self.params_num {
             let param_key = format!(
@@ -330,39 +329,119 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum CliCommand {
-    /// Run CnosDB server.
     Run(RunArgs),
 }
 
 #[derive(Debug, Args)]
 struct RunArgs {
+    /// Run mode, the default value is "cnosdb"
+    #[arg(long)]
+    mode: String,
+
     /// Number of CPUs on the system, the default value is 4
-    #[arg(short, long, global = true)]
+    #[arg(long, global = true)]
     addr: Option<String>,
 
     /// Gigabytes(G) of memory on the system, the default value is 16
-    #[arg(short, long, global = true)]
+    #[arg(long, global = true)]
     db: Option<String>,
+
+    #[arg(long, global = true)]
+    user_name: Option<String>,
+
+    #[arg(long, global = true)]
+    password: Option<String>,
+
+    #[arg(long, global = true)]
+    start_ts: Option<i64>,
+
+    #[arg(long, global = true)]
+    end_ts: Option<i64>,
+
+    #[arg(long, global = true)]
+    series_num: Option<u64>,
+
+    #[arg(long, global = true)]
+    interval_seconds: Option<i64>,
+
+    #[arg(long, global = true)]
+    params_num: Option<usize>,
+
+    #[arg(long, global = true)]
+    params_upper_bound: Option<i32>,
+
+    #[arg(long, global = true)]
+    params_lower_bound: Option<i32>,
+
+    #[arg(long, global = true)]
+    buffer_size: Option<usize>,
+
+    #[arg(long, global = true)]
+    all_data_size: Option<u64>,
 }
 
+pub enum Mode {
+    Influxdb,
+    Cnosdb,
+}
 
 pub struct Client {}
 
 impl Client {
-    pub async fn write_line(addr: String, db: String, body: Vec<u8>) {
-        // let url = "http://127.0.0.1:8902/api/v1/write?db=public";
+    pub async fn write_line_to_cnosdb(
+        addr: &str,
+        db: &str,
+        username: &str,
+        _password: &str,
+        body: Vec<u8>,
+    ) {
         let url = format!("http://{}/api/v1/write?db={}", addr, db);
-        // let body = "test_v1_write_path,ta=a1,tb=b1 fa=1,fb=2";
         let client = ClientBuilder::new().build().unwrap_or_else(|e| {
             panic!("Failed to build http client: {}", e);
         });
-        client
+        let res = client
             .post(url)
-            .basic_auth("root", Option::<&str>::None)
+            .basic_auth(username, Option::<&str>::None)
             .body(body)
             .send()
-            .await
-            .unwrap();
+            .await;
+
+        if res.is_err() {
+            println!("Failed to write to cnosdb: {}", res.err().unwrap());
+        } else {
+            let res = res.unwrap();
+            if !res.status().is_success() {
+                println!("Failed to write to cnosdb: {}", res.status());
+            }
+        }
+    }
+
+    pub async fn write_line_to_influxdb(
+        addr: &str,
+        db: &str,
+        username: &str,
+        password: &str,
+        body: Vec<u8>,
+    ) {
+        let url = format!("http://{}/write?db={}", addr, db);
+        let client = ClientBuilder::new().build().unwrap_or_else(|e| {
+            panic!("Failed to build http client: {}", e);
+        });
+        let res = client
+            .post(url.clone())
+            .header("Authorization", format!("Token {}:{}", username, password))
+            .body(body)
+            .send()
+            .await;
+
+        if res.is_err() {
+            println!("Failed to write to influxdb: {}", res.err().unwrap());
+        } else {
+            let res = res.unwrap();
+            if !res.status().is_success() {
+                println!("Failed to write to influxdb: {}", res.status());
+            }
+        }
     }
 }
 #[tokio::main]
@@ -373,76 +452,99 @@ async fn main() {
     let run_args = match cli.subcmd {
         CliCommand::Run(run_args) => run_args,
     };
-    let addr = run_args.addr.unwrap();
-    let db = run_args.db.unwrap();
-    println!("addr: {}, db: {}",addr, db);
+    let mode = match run_args.mode.to_uppercase().as_str() {
+        "CNOSDB" => Mode::Cnosdb,
+        "INFLUXDB" => Mode::Influxdb,
+        _ => {
+            println!(
+                "Invalid mode: {}, please use influxdb or cnosdb",
+                run_args.mode
+            );
+            return;
+        }
+    };
+    let addr = run_args
+        .addr
+        .unwrap_or_else(|| "127.0.0.1:8902".to_string());
+    let db = run_args.db.unwrap_or_else(|| "public".to_string());
+    let start_ts = run_args.start_ts.unwrap_or(0);
+    let end_ts = run_args.end_ts.unwrap_or(10000000000000);
+    let series_num = run_args.series_num.unwrap_or(3000);
+    let interval_seconds = run_args.interval_seconds.unwrap_or(1);
+    let params_num = run_args.params_num.unwrap_or(400);
+    let params_upper_bound = run_args.params_upper_bound.unwrap_or(200);
+    let params_lower_bound = run_args.params_lower_bound.unwrap_or(100);
+    let buf_size = run_args.buffer_size.unwrap_or(30 * 1024 * 1024);
+    let size = run_args.all_data_size.unwrap_or(100 * 1024 * 1024 * 1024);
+    let user_name = run_args.user_name.unwrap_or_else(|| "root".to_string());
+    let password = run_args.password.unwrap_or_else(|| String::new());
+    println!("addr: {}, db: {}", addr, db);
 
     let mut simulator = Simulator {
-        start_ts: 0,
-        end_ts: 10000000000000,
-        series_num: 3000,
+        start_ts,
+        end_ts,
+        series_num,
         epoch_timestamp: Utc::now().timestamp(),
-        interval_seconds: 1,
-        params_num: 400,
+        interval_seconds,
+        params_num,
         param_key_prefix: "SIM".to_string(),
         param_key_names: vec![
             "Upper".to_string(),
             "Lower".to_string(),
             "Setting".to_string(),
         ],
-        param_val_bounds: (100, 200),
+        param_val_bounds: (params_lower_bound, params_upper_bound),
         ..Default::default()
     };
     // let mut payload = Vec::with_capacity(1024);
     let mut ts = simulator.start_ts;
-    let size: u64 = 100 * 1024 * 1024 * 1024;
-    let buf_size: usize = 30 * 1024 * 1024;
-    let mut cur_size:u64 = 0;
+    let mut cur_size: u64 = 0;
     let mut buffer = String::with_capacity(buf_size as usize);
     while ts < simulator.end_ts {
         simulator.epoch_timestamp = ts;
         for id in 0..simulator.series_num {
             simulator.gen(id);
-            // let key = simulator.get_key();
-            // let json = simulator.to_json().unwrap();
-            //build payload
-            // println!("key: {}, load: {}", key, json.to_string());
             let res = simulator.to_lineprotocol();
-            // println!("{}", res);
+            cur_size += res.len() as u64;
             simulator.processes_param_kv.clear();
-            writeln!(&mut buffer, "{res}");
+            let res = writeln!(&mut buffer, "{res}");
+            if res.is_err() {
+                println!("Failed to write to buffer: {}", res.err().unwrap());
+                continue;
+            }
             if buffer.len() > buf_size {
-                Client::write_line(
-                    addr.to_string(),
-                    db.to_string(),
-                    buffer.clone().into_bytes(),
-                )
-                .await;
-                cur_size += buffer.len() as u64;
+                match mode {
+                    Mode::Influxdb => {
+                        Client::write_line_to_influxdb(
+                            addr.as_str(),
+                            db.as_str(),
+                            user_name.as_str(),
+                            password.as_str(),
+                            buffer.clone().into_bytes(),
+                        )
+                        .await;
+                    }
+                    Mode::Cnosdb => {
+                        Client::write_line_to_cnosdb(
+                            addr.as_str(),
+                            db.as_str(),
+                            user_name.as_str(),
+                            password.as_str(),
+                            buffer.clone().into_bytes(),
+                        )
+                        .await;
+                    }
+                }
+
                 println!("buffer size: {}, total size: {}", buffer.len(), cur_size);
                 if cur_size > size {
                     println!("write done total size {}", cur_size);
                     return;
                 }
 
-
                 buffer.clear();
             }
-
-            // http_client.write_line("127.0.0.1:8902", "public", payload);
-            // payload.push(PayLoad {
-            //     key: key,
-            //     load: json.to_string(),
-            // });
         }
         ts += simulator.interval_seconds;
     }
-
-    // let producer = KafkaProducer::new(brokers, topic_name, 10000);
-    // producer
-    //     .produce(payload)
-    //     .await;
-
-    // // test consumer
-    // let consumer = KafkaConsumer::new(brokers, topic_name, 10000);
 }
