@@ -3,6 +3,11 @@ name = "tskv"
 version.workspace = true
 edition.workspace = true
 
+
+[[bin]]
+name = "tskv-writer"
+path = "src/main.rs"
+
 [dependencies]
 config = { path = "../config" }
 cache = { path = "../common/cache"}
@@ -17,6 +22,9 @@ trace = { path = "../common/trace" }
 utils = { path = "../common/utils" }
 http_protocol = { path = "../common/http_protocol" }
 
+rdkafka = {versin= 0.36}
+clap = { workspace = true, features = ["derive", "env"] }
+reqwest = { workspace = true, features = ["rustls-tls", "json"], default-features = false }
 arrow = { workspace = true, features = ["test_utils"] }
 arrow-array = { workspace = true }
 async-backtrace = { workspace = true, optional = true }
