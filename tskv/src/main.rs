@@ -311,6 +311,7 @@ impl KafkaProducer {
 pub struct KafkaConsumer {
     brokers: String,
     topic_name: String,
+    group: String,
     timeout_ms: u64,
     mode: Mode,
     max_buf_size: usize,
@@ -320,6 +321,7 @@ impl KafkaConsumer {
     pub fn new(
         brokers: &str,
         topic_name: &str,
+        group: &str,
         timeout_ms: u64,
         mode: Mode,
         buf_size: usize,
@@ -327,6 +329,7 @@ impl KafkaConsumer {
         KafkaConsumer {
             brokers: brokers.to_string(),
             topic_name: topic_name.to_string(),
+            group: group.to_string(),
             timeout_ms,
             mode,
             max_buf_size: buf_size,
@@ -335,7 +338,7 @@ impl KafkaConsumer {
 
     pub async fn subscribe(&self, addr: &str, db: &str, username: &str, password: &str) {
         let consumer: &StreamConsumer = &ClientConfig::new()
-            .set("group.id", "example_group")
+            .set("group.id", &self.group)
             .set("auto.offset.reset", "earliest")
             .set("bootstrap.servers", &self.brokers)
             .set("session.timeout.ms", self.timeout_ms.to_string().as_str())
@@ -504,6 +507,10 @@ struct RunArgs {
     /// Payload length, the default value is 1024, only for kafka
     #[arg(long, global = true)]
     payload_len: Option<usize>,
+
+    /// Group name, the default value is example_group, only for kafka
+    #[arg(long, global = true)]
+    group: Option<String>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -587,6 +594,7 @@ async fn main() {
     let topic_name = run_args.topic.unwrap_or_else(|| "test".to_string());
     let timeout_ms = run_args.timeout_ms.unwrap_or(10000);
     let payload_len = run_args.payload_len.unwrap_or(1024);
+    let group = run_args.group.unwrap_or_else(|| "example_group".to_string());
     let producer = KafkaProducer::new(brokers.as_str(), topic_name.as_str(), timeout_ms);
 
     let mode = match run_args.mode.to_uppercase().as_str() {
@@ -646,6 +654,7 @@ async fn main() {
             let consumer = KafkaConsumer::new(
                 brokers.as_str(),
                 topic_name.as_str(),
+                group.as_str(),
                 timeout_ms,
                 mode,
                 buf_size,
