@@ -144,35 +144,19 @@ use std::time::Duration;
 // # }
 use chrono::{TimeZone, Utc};
 use clap::{Args, Parser, Subcommand};
+use futures::StreamExt;
 use rand::Rng;
+use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::message::BorrowedMessage;
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use rdkafka::ClientConfig;
+use rdkafka::{ClientConfig, Message};
 use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
 use serde_json::{Result, Value};
-use trace::info;
 
 #[derive(Serialize, Deserialize, Default)]
-struct Simulator {
-    #[serde(skip)]
-    start_ts: i64,
-    #[serde(skip)]
-    end_ts: i64,
-    #[serde(skip)]
-    series_num: u64,
-    #[serde(skip)]
-    epoch_timestamp: i64,
-    #[serde(skip)]
-    interval_seconds: i64,
-    #[serde(skip)]
-    params_num: usize,
-    #[serde(skip)]
-    param_key_prefix: String,
-    #[serde(skip)]
-    param_key_names: Vec<String>,
-    #[serde(skip)]
-    param_val_bounds: (i32, i32),
-    timestamp: String,
+struct MessageSerde {
+    timestamp: i64,
     upload_date_time: String,
     size: i32,
     resource: String,
@@ -181,27 +165,59 @@ struct Simulator {
     processes_param_kv: Vec<HashMap<String, i32>>,
 }
 
+impl MessageSerde {
+    pub fn to_lineprotocol(&self) -> String {
+        let mut line = format!(
+            "tskv,project_name={},resource={},mes_ip={},size={} ",
+            self.project_name, self.resource, self.mes_ip, self.size
+        );
+        for (k, v) in self.processes_param_kv[0].iter() {
+            line.push_str(&format!("{}={},", k, v));
+        }
+        line.pop();
+        line.push_str(&format!(" {}\n", self.timestamp));
+        line
+    }
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct Simulator {
+    start_ts: i64,
+    end_ts: i64,
+    series_num: u64,
+    interval_seconds: i64,
+    params_num: usize,
+    param_key_prefix: String,
+    param_key_names: Vec<String>,
+    param_val_bounds: (i32, i32),
+
+    message_serde: MessageSerde,
+}
+
 impl Simulator {
-    fn update_timestamp(&mut self) {
-        let dt = Utc.timestamp(self.epoch_timestamp, 0);
-        self.timestamp = dt.to_rfc3339();
-        self.upload_date_time = dt.format("%Y-%m-%d %H:%M:%S").to_string();
+    fn update_timestamp(&mut self, ts: i64) {
+        let dt = Utc.timestamp_nanos(ts);
+        self.message_serde.timestamp = ts;
+        self.message_serde.upload_date_time = dt.format("%Y-%m-%d %H:%M:%S").to_string();
     }
 
     fn get_key(&self) -> String {
         format!(
             "{}_{}_{}_{}",
-            self.project_name, self.size, self.mes_ip, self.resource
+            self.message_serde.project_name,
+            self.message_serde.size,
+            self.message_serde.mes_ip,
+            self.message_serde.resource
         )
     }
 
-    fn gen(&mut self, id: u64) {
+    fn gen(&mut self, id: u64, ts: i64) {
         let mut rng = rand::thread_rng();
-        self.update_timestamp();
-        self.size = id as i32;
-        self.resource = format!("WXXX11DV-{}", id);
-        self.mes_ip = format!("192.168.{}.{}", id, id);
-        self.project_name = format!("Project_{}", id);
+        self.update_timestamp(ts);
+        self.message_serde.size = id as i32;
+        self.message_serde.resource = format!("WXXX11DV-{}", id);
+        self.message_serde.mes_ip = format!("192.168.{}.{}", id, id);
+        self.message_serde.project_name = format!("Project_{}", id);
         // 400 column key  400 * 3 1200  column value
         let mut col_set = HashMap::new();
         let epoch = self.params_num + rng.gen_range(0..10);
@@ -229,25 +245,15 @@ impl Simulator {
             let val = rng.gen_range(self.param_val_bounds.0..self.param_val_bounds.1);
             col_set.insert(param_key, val);
         }
-        self.processes_param_kv.push(col_set);
+        self.message_serde.processes_param_kv.push(col_set);
     }
 
     fn to_json(&self) -> Result<Value> {
-        serde_json::to_value(self)
+        serde_json::to_value(&self.message_serde)
     }
 
     fn to_lineprotocol(&self) -> String {
-        let mut line = format!(
-            "tskv,project_name={},resource={},mes_ip={},size={} ",
-            self.project_name, self.resource, self.mes_ip, self.size
-        );
-        for (k, v) in self.processes_param_kv[0].iter() {
-            line.push_str(&format!("{}={},", k, v));
-        }
-        line.pop();
-        // write!(line," {}", self.epoch_timestamp);
-        line.push_str(&format!(" {}", self.epoch_timestamp));
-        line
+        self.message_serde.to_lineprotocol()
     }
 }
 
@@ -270,7 +276,7 @@ impl KafkaProducer {
             timeout_ms,
         }
     }
-    async fn produce(&self, payloads: Vec<PayLoad>) {
+    pub async fn produce(&self, payloads: Vec<PayLoad>) {
         let producer: &FutureProducer = &ClientConfig::new()
             .set("bootstrap.servers", &self.brokers)
             .set("message.timeout.ms", self.timeout_ms.to_string().as_str())
@@ -294,8 +300,11 @@ impl KafkaProducer {
 
         // This loop will wait until all delivery statuses have been received.
         for future in futures {
-            info!("Future completed. Result: {:?}", future.await);
+            if let Err(e) = future.await {
+                println!("Error sending message: {:?}", e);
+            }
         }
+        println!("produce done total payload len {}", payloads.len());
     }
 }
 
@@ -303,14 +312,106 @@ pub struct KafkaConsumer {
     brokers: String,
     topic_name: String,
     timeout_ms: u64,
+    mode: Mode,
+    max_buf_size: usize,
 }
 
 impl KafkaConsumer {
-    pub fn new(brokers: &str, topic_name: &str, timeout_ms: u64) -> Self {
+    pub fn new(
+        brokers: &str,
+        topic_name: &str,
+        timeout_ms: u64,
+        mode: Mode,
+        buf_size: usize,
+    ) -> Self {
         KafkaConsumer {
             brokers: brokers.to_string(),
             topic_name: topic_name.to_string(),
             timeout_ms,
+            mode,
+            max_buf_size: buf_size,
+        }
+    }
+
+    pub async fn subscribe(&self, addr: &str, db: &str, username: &str, password: &str) {
+        let consumer: &StreamConsumer = &ClientConfig::new()
+            .set("group.id", "example_group")
+            .set("auto.offset.reset", "earliest")
+            .set("bootstrap.servers", &self.brokers)
+            .set("session.timeout.ms", self.timeout_ms.to_string().as_str())
+            .create()
+            .expect("Consumer creation error");
+
+        consumer
+            .subscribe(&[&self.topic_name])
+            .expect("Can't subscribe to specified topic");
+
+        let mut stream = consumer.stream();
+        let mut buffer = String::with_capacity(self.max_buf_size);
+
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(message) => {
+                    if let Ok(msg) = Self::consume_message(&message).await {
+                        let line = msg.to_lineprotocol();
+                        let res = writeln!(&mut buffer, "{line}");
+                        if res.is_err() {
+                            println!("Failed to write to buffer: {}", res.err().unwrap());
+                            continue;
+                        }
+                        if buffer.len() >= self.max_buf_size {
+                            match self.mode {
+                                Mode::CnosKafkaC => {
+                                    Client::write_line_to_cnosdb(
+                                        addr,
+                                        db,
+                                        username,
+                                        password,
+                                        buffer.clone().into_bytes(),
+                                    )
+                                    .await;
+                                }
+                                Mode::InfluxKafkaC => {
+                                    Client::write_line_to_influxdb(
+                                        addr,
+                                        db,
+                                        username,
+                                        password,
+                                        buffer.clone().into_bytes(),
+                                    )
+                                    .await;
+                                }
+                                _ => {}
+                            }
+                            println!("write done total size {}", buffer.len());
+                            buffer.clear();
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Error receiving message: {}", e);
+                }
+            }
+        }
+    }
+
+    async fn consume_message(msg: &BorrowedMessage<'_>) -> std::result::Result<MessageSerde, ()> {
+        match msg.payload_view::<str>() {
+            Some(Ok(payload)) => match serde_json::from_str::<MessageSerde>(payload) {
+                Ok(msg) => return Ok(msg),
+                Err(e) => {
+                    println!("Error deserializing message payload: {:?}", e);
+                    return Err(());
+                }
+            },
+            Some(Err(e)) => {
+                println!("Error deserializing message payload: {:?}", e);
+                return Err(());
+            }
+            None => {
+                println!("No payload");
+                return Err(());
+            }
         }
     }
 }
@@ -332,55 +433,86 @@ enum CliCommand {
 
 #[derive(Debug, Args)]
 struct RunArgs {
-    /// Run mode, the default value is "cnosdb"
+    /// Run mode, cnosdb, influxdb, kafka
     #[arg(long)]
     mode: String,
 
-    /// Number of CPUs on the system, the default value is 4
+    /// Address of the database, the default value is
     #[arg(long, global = true)]
     addr: Option<String>,
 
-    /// Gigabytes(G) of memory on the system, the default value is 16
+    /// Database name, the default value is public
     #[arg(long, global = true)]
     db: Option<String>,
 
+    /// User name, the default value is root
     #[arg(long, global = true)]
     user_name: Option<String>,
 
+    /// Password, the default value is empty
     #[arg(long, global = true)]
     password: Option<String>,
 
+    /// Start timestamp, the default value is 0
     #[arg(long, global = true)]
     start_ts: Option<i64>,
 
+    /// End timestamp, the default value is 10000000000000
     #[arg(long, global = true)]
     end_ts: Option<i64>,
 
+    /// Number of series, the default value is 3000
     #[arg(long, global = true)]
     series_num: Option<u64>,
 
+    /// Interval seconds, the default value is 1
     #[arg(long, global = true)]
     interval_seconds: Option<i64>,
 
+    /// Number of parameters, the default value is 400, the number of fields is params_num * 3
     #[arg(long, global = true)]
     params_num: Option<usize>,
 
+    /// Upper bound of parameter value, the default value is 200
     #[arg(long, global = true)]
     params_upper_bound: Option<i32>,
 
+    /// Lower bound of parameter value, the default value is 100
     #[arg(long, global = true)]
     params_lower_bound: Option<i32>,
 
+    /// Buffer size, is request size, the default value is 30 * 1024 * 1024
     #[arg(long, global = true)]
     buffer_size: Option<usize>,
 
+    /// All data size, the default value is 100 * 1024 * 1024 * 1024
     #[arg(long, global = true)]
     all_data_size: Option<u64>,
+
+    /// Topic name, the default value is test, only for kafka
+    #[arg(long, global = true)]
+    topic: Option<String>,
+
+    /// Brokers, the default value is localhost:9092, only for kafka
+    #[arg(long, global = true)]
+    brokers: Option<String>,
+
+    /// Timeout ms, the default value is 10000, only for kafka
+    #[arg(long, global = true)]
+    timeout_ms: Option<u64>,
+
+    /// Payload length, the default value is 1024, only for kafka
+    #[arg(long, global = true)]
+    payload_len: Option<usize>,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum Mode {
     Influxdb,
     Cnosdb,
+    KafkaP,
+    CnosKafkaC,
+    InfluxKafkaC,
 }
 
 pub struct Client {}
@@ -444,18 +576,28 @@ impl Client {
 }
 #[tokio::main]
 async fn main() {
-    // let brokers = "localhost:9092";
-    // let topic_name = "test";
     let cli = Cli::parse();
     let run_args = match cli.subcmd {
         CliCommand::Run(run_args) => run_args,
     };
+
+    let brokers = run_args
+        .brokers
+        .unwrap_or_else(|| "localhost:9092".to_string());
+    let topic_name = run_args.topic.unwrap_or_else(|| "test".to_string());
+    let timeout_ms = run_args.timeout_ms.unwrap_or(10000);
+    let payload_len = run_args.payload_len.unwrap_or(1024);
+    let producer = KafkaProducer::new(brokers.as_str(), topic_name.as_str(), timeout_ms);
+
     let mode = match run_args.mode.to_uppercase().as_str() {
         "CNOSDB" => Mode::Cnosdb,
         "INFLUXDB" => Mode::Influxdb,
+        "KAFKAP" => Mode::KafkaP,
+        "CNOSKAFKAC" => Mode::CnosKafkaC,
+        "INFLUXKAFKAC" => Mode::InfluxKafkaC,
         _ => {
             println!(
-                "Invalid mode: {}, please use influxdb or cnosdb",
+                "Invalid mode: {}, please use influxdb, cnosdb, kafkap, cnoskafkac, influxkafkac",
                 run_args.mode
             );
             return;
@@ -482,7 +624,6 @@ async fn main() {
         start_ts,
         end_ts,
         series_num,
-        epoch_timestamp: Utc::now().timestamp(),
         interval_seconds,
         params_num,
         param_key_prefix: "SIM".to_string(),
@@ -494,25 +635,40 @@ async fn main() {
         param_val_bounds: (params_lower_bound, params_upper_bound),
         ..Default::default()
     };
-    // let mut payload = Vec::with_capacity(1024);
+
+    let mut payload = Vec::with_capacity(payload_len);
     let mut ts = simulator.start_ts;
     let mut cur_size: u64 = 0;
-    let mut buffer = String::with_capacity(buf_size as usize);
+    let mut buffer = String::with_capacity(buf_size);
+
+    match mode {
+        Mode::CnosKafkaC | Mode::InfluxKafkaC => {
+            let consumer = KafkaConsumer::new(
+                brokers.as_str(),
+                topic_name.as_str(),
+                timeout_ms,
+                mode,
+                buf_size,
+            );
+            consumer.subscribe(&addr, &db, &user_name, &password).await;
+        }
+        _ => {}
+    }
+
     while ts < simulator.end_ts {
-        simulator.epoch_timestamp = ts;
         for id in 0..simulator.series_num {
-            simulator.gen(id);
-            let res = simulator.to_lineprotocol();
-            cur_size += res.len() as u64;
-            simulator.processes_param_kv.clear();
-            let res = writeln!(&mut buffer, "{res}");
-            if res.is_err() {
-                println!("Failed to write to buffer: {}", res.err().unwrap());
-                continue;
-            }
-            if buffer.len() > buf_size {
-                match mode {
-                    Mode::Influxdb => {
+            simulator.gen(id, ts);
+            match mode {
+                Mode::Influxdb => {
+                    let res = simulator.to_lineprotocol();
+                    cur_size += res.len() as u64;
+                    simulator.message_serde.processes_param_kv.clear();
+                    let res = writeln!(&mut buffer, "{res}");
+                    if res.is_err() {
+                        println!("Failed to write to buffer: {}", res.err().unwrap());
+                        continue;
+                    }
+                    if buffer.len() > buf_size {
                         Client::write_line_to_influxdb(
                             addr.as_str(),
                             db.as_str(),
@@ -521,8 +677,20 @@ async fn main() {
                             buffer.clone().into_bytes(),
                         )
                         .await;
+                        println!("buffer size: {}, total size: {}", buffer.len(), cur_size);
+                        buffer.clear();
                     }
-                    Mode::Cnosdb => {
+                }
+                Mode::Cnosdb => {
+                    let res = simulator.to_lineprotocol();
+                    cur_size += res.len() as u64;
+                    simulator.message_serde.processes_param_kv.clear();
+                    let res = writeln!(&mut buffer, "{res}");
+                    if res.is_err() {
+                        println!("Failed to write to buffer: {}", res.err().unwrap());
+                        continue;
+                    }
+                    if buffer.len() > buf_size {
                         Client::write_line_to_cnosdb(
                             addr.as_str(),
                             db.as_str(),
@@ -531,17 +699,36 @@ async fn main() {
                             buffer.clone().into_bytes(),
                         )
                         .await;
+                        println!("buffer size: {}, total size: {}", buffer.len(), cur_size);
+                        buffer.clear();
                     }
                 }
-
-                println!("buffer size: {}, total size: {}", buffer.len(), cur_size);
-                if cur_size > size {
-                    println!("write done total size {}", cur_size);
-                    return;
+                Mode::KafkaP => {
+                    let key = simulator.get_key();
+                    let json = simulator.to_json().unwrap().to_string();
+                    cur_size += json.len() as u64 + key.len() as u64;
+                    payload.push(PayLoad {
+                        key: key,
+                        load: json,
+                    });
+                    if payload.len() >= payload_len {
+                        producer.produce(payload).await;
+                        payload = Vec::with_capacity(1024);
+                        println!("kafka produce done total size {}", cur_size);
+                    }
                 }
-
-                buffer.clear();
+                _ => {
+                    break;
+                }
             }
+
+            if cur_size > size {
+                break;
+            }
+        }
+        if cur_size > size {
+            println!("write done total size {}", cur_size);
+            break;
         }
         ts += simulator.interval_seconds;
     }
