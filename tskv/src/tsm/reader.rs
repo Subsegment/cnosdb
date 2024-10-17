@@ -465,19 +465,20 @@ pub fn decode_pages(
             .collect::<Vec<_>>();
         let schema = Arc::new(Schema::new_with_metadata(fields, table_schema.meta()));
         for page in pages {
-            let null_bits =
-                if tomb.overlaps_column_time_range(series_id, page.meta.column.id, &time_range) {
-                    let null_bitset = update_nullbits_by_tombstone(
-                        &time_column,
-                        &tomb,
-                        series_id,
-                        &time_range,
-                        &page,
-                    )?;
-                    NullBitset::Own(null_bitset)
-                } else {
-                    NullBitset::Ref(page.null_bitset())
-                };
+            let null_bits = if !page.meta().column.column_type.is_time()
+                && tomb.overlaps_column_time_range(series_id, page.meta.column.id, &time_range)
+            {
+                let null_bitset = update_nullbits_by_tombstone(
+                    &time_column,
+                    &tomb,
+                    series_id,
+                    &time_range,
+                    &page,
+                )?;
+                NullBitset::Own(null_bitset)
+            } else {
+                NullBitset::Ref(page.null_bitset())
+            };
             let array = data_buf_to_arrow_array(&page, null_bits)?;
             target_arrays.push(array);
         }
