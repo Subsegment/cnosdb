@@ -28,6 +28,7 @@ use crate::error::{ArrowSnafu, CommonSnafu, DecodeSnafu, ReadTsmSnafu, TskvResul
 use crate::file_system::async_filesystem::{LocalFileSystem, LocalFileType};
 use crate::file_system::file::stream_reader::FileStreamReader;
 use crate::file_system::FileSystem;
+use crate::reader::column_group::ColumnGroupReaderMetrics;
 use crate::tsm::chunk::Chunk;
 use crate::tsm::chunk_group::{ChunkGroup, ChunkGroupMeta};
 use crate::tsm::codec::{
@@ -287,6 +288,40 @@ impl TsmReader {
             Some((self.tombstone.clone(), series_id)),
         )?;
         Ok(record_batch)
+    }
+
+    pub async fn read_continuous_pages(
+        &self,
+        grouped_pages_meta: Vec<(Vec<PageWriteSpec>, u64, u64)>,
+        pages: &mut Vec<Page>,
+        metrics: &ColumnGroupReaderMetrics,
+    ) -> TskvResult<()> {
+        let _timer = metrics.elapsed_page_scan_time().timer();
+        for (pages_meta, offset, size) in grouped_pages_meta {
+            let mut buffer = vec![0u8; size as usize];
+            self.reader
+                .read_at(offset as usize, &mut buffer)
+                .await
+                .map_err(|e| {
+                    ReadTsmSnafu {
+                        reason: e.to_string(),
+                    }
+                    .build()
+                })?;
+            metrics.page_read_count().add(1);
+            metrics.page_read_bytes().add(size as usize);
+            for page_meta in pages_meta {
+                let buffer_start = page_meta.offset() as usize - offset as usize;
+                let buffer_end = buffer_start + page_meta.size() as usize;
+                let page = Page {
+                    meta: page_meta.meta().clone(),
+                    bytes: Bytes::from(buffer[buffer_start..buffer_end].to_vec()),
+                };
+                let page_result = page.crc_validation()?;
+                pages.push(page_result);
+            }
+        }
+        Ok(())
     }
 
     pub async fn add_tombstone_and_compact_to_tmp(

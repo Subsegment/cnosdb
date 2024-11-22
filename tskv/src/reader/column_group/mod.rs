@@ -200,17 +200,39 @@ async fn read(
     metrics: ColumnGroupReaderMetrics,
 ) -> TskvResult<RecordBatch> {
     let mut pages = Vec::with_capacity(pages_meta.len());
-    // todo: 一次性读取所有相邻的page，减少io次数
-    for page_meta in pages_meta.iter() {
-        let _timer = metrics.elapsed_page_scan_time().timer();
-        metrics.page_read_count().add(1);
-        metrics.page_read_bytes().add(page_meta.size() as usize);
-        let page = reader.read_page(page_meta).await?;
-        pages.push(page);
-    }
+    let group_pages_meta = grouped_pages_meta(pages_meta);
+    reader
+        .read_continuous_pages(group_pages_meta, &mut pages, &metrics)
+        .await?;
     let _timer = metrics.elapsed_pages_to_record_batch_time().timer();
     let record_batch = decode_pages(pages, schema_meta, Some((reader.tombstone(), series_id)))?;
     Ok(record_batch)
+}
+
+pub fn grouped_pages_meta(pages_meta: Vec<PageWriteSpec>) -> Vec<(Vec<PageWriteSpec>, u64, u64)> {
+    let mut target = Vec::new();
+    let mut current = Vec::new();
+    for page_meta in pages_meta {
+        if current.is_empty() {
+            current.push(page_meta);
+            continue;
+        }
+        let last = current.last().unwrap();
+        if last.offset + last.size == page_meta.offset {
+            current.push(page_meta);
+        } else {
+            let start = current.first().unwrap().offset;
+            let end = current.last().unwrap().offset + current.last().unwrap().size;
+            target.push((current, start, end));
+            current = vec![page_meta];
+        }
+    }
+    if !current.is_empty() {
+        let start = current.first().unwrap().offset;
+        let end = current.last().unwrap().offset + current.last().unwrap().size;
+        target.push((current, start, end));
+    }
+    target
 }
 
 #[cfg(test)]

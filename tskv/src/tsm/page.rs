@@ -55,12 +55,12 @@ impl Page {
         &self.meta.column
     }
 
-    pub fn crc_validation(&self) -> TskvResult<Page> {
-        let bytes = self.bytes().clone();
-        let meta = self.meta().clone();
+    pub fn crc_validation(self) -> TskvResult<Page> {
+        let bytes = self.bytes;
+        let meta = self.meta;
         let data_crc = decode_be_u32(&bytes[12..16]);
         let mut hasher = crc32fast::Hasher::new();
-        let bitset_len = decode_be_u32(&self.bytes[0..4]) as usize;
+        let bitset_len = decode_be_u32(&bytes[0..4]) as usize;
         hasher.update(&bytes[16 + bitset_len..]);
         let data_crc_calculated = hasher.finalize();
         if data_crc != data_crc_calculated {

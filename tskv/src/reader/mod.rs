@@ -30,7 +30,7 @@ use crate::{ColumnFileId, TskvError, TskvResult};
 
 mod batch_builder;
 mod chunk;
-mod column_group;
+pub mod column_group;
 pub mod display;
 pub mod filter;
 mod function_register;
